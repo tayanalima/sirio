@@ -1,0 +1,892 @@
+============================================================
+ SIRIO — MANUAL DE OPERAÇÃO (versão simplificada)
+ Sistema Interno de Registro de Investigados e Organizações
+============================================================
+
+Software livre sob a Licença MIT.
+Copyright © 2026 Tayana Borges de Lima
+
+USO RESTRITO. Este sistema trata dados sensíveis de investigação.
+Use somente em computador funcional, com autorização da chefia da
+unidade, e NUNCA insira dados reais em testes ou demonstrações.
+
+
+------------------------------------------------------------
+ 1. O QUE TEM NESTA PASTA
+------------------------------------------------------------
+
+  sirio.py            O programa principal — é nele que você clica
+                      "Executar" se algum dia precisar rodar manualmente.
+  sirio_core.py, sirio_pessoas.py, sirio_ocorrencias.py,
+  sirio_materiais.py, sirio_mapa.py, sirio_vinculos.py,
+  sirio_importar.py, sirio_config.py, sirio_usuarios.py,
+  sirio_verificacoes.py
+                      O restante do sistema, dividido por assunto para
+                      ficar mais fácil de entender e ajustar cada parte.
+                      TODOS esses arquivos .py precisam ficar juntos,
+                      na mesma pasta que o sirio.py — nunca separe ou
+                      apague um deles, senão o sistema para de funcionar.
+  Iniciar SIRIO.bat   Dois cliques = liga o sistema e abre o navegador.
+  Iniciar SIRIO (Rede da Unidade).bat
+                      Igual ao de cima, mas permite que os demais
+                      computadores da rede interna da unidade acessem.
+  Fazer Backup.bat    Dois cliques = cria uma cópia de segurança dos dados.
+  Resetar Senha.bat   Emergência: redefine a senha de qualquer usuário.
+  Ativar Importacao de BO.bat
+                      (Opcional) Instala o leitor de PDF para importar
+                      dados a partir de Boletins de Ocorrência.
+  sirio.db            O banco de dados (aparece após o primeiro uso).
+                      ESTE ARQUIVO É TUDO. Proteja-o e faça backup dele.
+  modelos\            Modelos de documento em Word usados pelo sistema.
+                      Contém comunicacao_servico.docx, o modelo da
+                      Comunicação de Serviço. O que vem no pacote é um
+                      modelo EM BRANCO: abra-o no Word e troque o
+                      cabeçalho pelo timbre da sua unidade antes de usar.
+  LICENSE             Licença MIT de software livre do SIRIO.
+  NOTICE.md           Autoria, contatos e aviso de copyright.
+  certificados\       Certificado HTTPS e chave privada do servidor.
+                      A chave privada não deve ser copiada para computadores clientes.
+  fotos\              Pasta com as fotografias e tatuagens cadastradas
+                      (tão sensível quanto o banco — protegida no backup).
+  backups\            Pasta onde os backups são guardados.
+
+
+------------------------------------------------------------
+ 2. PRIMEIRA VEZ / INSTALAÇÃO
+------------------------------------------------------------
+
+  1. Instale o Python (gratuito): https://www.python.org/downloads/
+     IMPORTANTE: na instalação, marque a caixinha "Add Python to PATH".
+     O SIRIO precisa da versão 3.10 ou mais nova. A versão oferecida na
+     página oficial já atende. Se o computador da unidade já tiver um
+     Python antigo instalado, o SIRIO avisa na tela ao abrir e não roda
+     até a atualização — nesse caso, peça a atualização ao suporte.
+  2. Dois cliques em "Iniciar SIRIO.bat". Uma janela preta abre (é o
+     sistema rodando) e o navegador abre sozinho.
+  3. Na primeira tela, crie o usuário Administrador (nome, login,
+     senha). Guarde a senha em local seguro. Cada usuário pode alterar
+     a própria senha após entrar no sistema; em caso de esquecimento,
+     use o procedimento de "Resetar Senha.bat".
+  4. Depois de criado o administrador, cadastre os demais usuários da
+     unidade na aba "Usuários", cada um com seu próprio perfil.
+
+Dica: mantenha a janela preta aberta enquanto estiver usando o
+sistema — fechá-la desliga o SIRIO.
+
+
+------------------------------------------------------------
+ 3. PERFIS DE USUÁRIO
+------------------------------------------------------------
+
+  Consulta       Visualiza e busca registros, ocorrências, materiais
+                 e o mapa. Não cadastra, edita ou exclui nada.
+  Analista       Tudo do Consulta, além de cadastrar, editar e alterar
+                 o status de registros, ocorrências, materiais e
+                 importações (BO/CSV).
+  Administrador  Tudo do Analista, além de: gerir usuários, acessar
+                 Configurações, mesclar registros, exportar CSV,
+                 excluir definitivamente e ver a auditoria completa.
+
+Escolha o perfil mais restrito possível para cada pessoa.
+
+ALTERAR UM USUÁRIO JÁ CADASTRADO (somente Administrador): na aba
+"Usuários", os campos Nome, Login e Perfil da tabela "Cadastrados"
+são editáveis. Corrija o que for preciso e clique em "Salvar" na
+própria linha. Não é necessário criar um segundo cadastro para a
+mesma pessoa quando o perfil dela muda.
+
+  - Toda alteração fica registrada na trilha de auditoria, com o
+    valor anterior e o novo.
+  - Ao mudar o perfil de alguém que está com o sistema aberto, a
+    sessão dela é encerrada para que a nova permissão valha na hora.
+    A pessoa apenas entra de novo com o mesmo login e senha.
+  - O login não pode conter espaços nem repetir o de outra pessoa.
+  - O sistema impede alterar o perfil ou desativar o último
+    administrador ativo, para a unidade não ficar sem acesso
+    administrativo. Promova outra pessoa a Administrador antes.
+  - Para trocar a senha de outra pessoa, use "Resetar Senha.bat"
+    (a senha não é editável por esta tela).
+
+A trilha de auditoria de cada registro é visível somente ao
+Administrador.
+
+SEGURANÇA DE ACESSO:
+
+  - Após 5 tentativas de senha erradas seguidas, aquele login fica
+    bloqueado por 15 minutos naquele computador. Toda tentativa
+    fracassada é registrada na auditoria, com a origem.
+  - A sessão encerra sozinha após 30 minutos sem uso, e sempre após
+    12 horas. Isso protege computador compartilhado da unidade.
+  - Desativar um usuário ou alterar o perfil dele derruba na hora as
+    sessões que estiverem abertas em nome dele.
+
+EXCLUIR UM REGISTRO DE PESSOA (somente Administrador): a exclusão
+apaga junto tudo que depende daquela pessoa — fotografias (inclusive
+os arquivos gravados na pasta fotos\), biqueiras, vínculos com
+boletins, posições no diagrama e os dados dela em casos de Violência
+Doméstica, incluindo FONAR e ficha específica.
+
+  - Materiais apreendidos NÃO são apagados: são prova ligada a uma
+    ocorrência. Eles apenas deixam de apontar para a pessoa.
+  - A trilha de auditoria é preservada de propósito, com o nome da
+    pessoa registrado no momento da exclusão.
+  - A ação não pode ser desfeita. Prefira Arquivar quando quiser
+    apenas tirar o registro de circulação.
+
+
+------------------------------------------------------------
+ 4. REGISTROS (cadastro de pessoas)
+------------------------------------------------------------
+
+O formulário de cadastro é dividido em sete seções: Identificação
+pessoal, Filiação e família, Vínculo criminal/investigativo,
+Situação prisional, Fonte e confiabilidade da informação, Endereço e
+observações, e Controle administrativo. Só o nome completo é
+obrigatório.
+
+CARGO NA ORGANIZAÇÃO: o formulário tem o campo "Cargo / função
+na organização" (seção 3). Ele aparece na listagem, no registro
+e no diagrama de vínculos.
+
+BUSCA: o campo de busca varre o cadastro inteiro — nome, alcunha,
+CPF, RG, nome da mãe e do pai, filhos, companheira, organização,
+cargo, endereço, crime da prisão e observações — e alcança também as
+ocorrências e os materiais ligados à pessoa (tipo de crime, número do
+BO, objeto apreendido). Ignora acentos e maiúsculas: "jose" acha
+"JOSÉ". Digitando mais de uma palavra, o registro precisa ter todas
+elas, em qualquer campo: "maria josefa" encontra quem se chama Maria
+e é filha de Josefa. Para procurar uma expressão inteira, use aspas:
+"rua das flores".
+
+ROLAGEM E ORDEM DAS COLUNAS: a tabela tem rolagem própria e o
+cabeçalho fica fixo no topo enquanto você desce a lista. Para mudar
+uma coluna de lugar, arraste o título dela. A ordem escolhida fica
+guardada no navegador daquele computador — não altera o banco nem a
+tela dos outros usuários. O botão "Restaurar ordem das colunas",
+acima da tabela, volta ao padrão.
+
+COLUNAS DA LISTAGEM: além dos dados de cadastro, a tela de Registros
+mostra, para cada pessoa, três colunas calculadas automaticamente:
+  - Tipo de crime: os tipos de crime das ocorrências em que a
+    pessoa está vinculada como autora (sem repetir).
+  - Ocorrências: quantas ocorrências têm essa pessoa como autora
+    vinculada. O número é um link — clique para ver só as
+    ocorrências dela na aba Ocorrências.
+  - Materiais: quantos materiais apreendidos estão vinculados a
+    essa pessoa. Também é um link, que abre a aba Materiais já
+    filtrada por ela.
+Nenhuma dessas três colunas é digitada — elas somem sozinhas quando
+não há nada vinculado.
+
+Como a tabela ficou com muitas colunas, em telas menores (notebook,
+ou a janela do sistema não maximizada) ela ganha uma barra de
+rolagem horizontal própria, por baixo do cabeçalho "Registros" —
+arraste para os lados para ver as colunas que não couberem. Isso
+evita que o texto fique espremido: cada coluna mantém um tamanho
+mínimo confortável de leitura.
+
+SITUAÇÃO PRISIONAL (seção 4 do formulário): controla se a pessoa
+está presa, a data da última prisão e o crime da prisão (escolhido
+na mesma lista de "Tipos de crime" gerenciada em Configurações).
+A data "Status atualizado em" é preenchida AUTOMATICAMENTE pelo
+sistema sempre que o campo "Está preso(a)" for alterado — você não
+edita essa data diretamente. Quem está preso aparece com um selo
+vermelho "PRESO(A)" na tela de detalhes e na listagem, que também
+tem um filtro "Situação prisional" (Presos / Em liberdade).
+
+FOTOS E TATUAGENS: só podem ser adicionadas ou removidas pela tela
+de Editar (não pela tela de detalhes, que é somente leitura). Cada
+imagem tem tipo (fotografia ou tatuagem), legenda opcional e aceita
+JPG, PNG, WEBP ou GIF de até 10 MB. A primeira fotografia cadastrada
+aparece em destaque na tela de detalhes.
+
+BIQUEIRAS (pontos de tráfico): dentro do registro de cada pessoa há
+uma seção "Biqueiras (pontos de tráfico)", onde é possível cadastrar
+quantos pontos forem necessários — locais onde aquela pessoa já foi
+localizada atuando. Cada ponto tem local/referência curta, endereço,
+bairro, cidade e coordenadas (com o mesmo botão de localização
+automática usado em outras partes do sistema). No Diagrama de
+vínculos, quando a pessoa tem biqueira cadastrada, os locais
+aparecem em destaque numa linha extra, embaixo do nome dela.
+
+BOLETINS DE OCORRÊNCIA (dentro do registro da pessoa): sempre que
+você importa um BO, o histórico completo (o texto narrativo) fica
+guardado à parte e vinculado a cada envolvido que você cadastrou
+daquele BO — inclusive testemunhas, não só o autor.
+  - Dentro do registro de qualquer pessoa, se ela tiver boletins
+    vinculados, aparece a seção "Boletins de Ocorrência". Clique
+    no título de cada boletim para abrir/fechar e ler o histórico
+    completo (é um "sanfona" — clique de novo para fechar).
+  - "Observações" guarda só uma referência curta ao BO, não o
+    histórico inteiro — isso fica só na aba própria.
+
+MESCLAR REGISTROS (somente administrador): quando dois cadastros
+são, na verdade, a mesma pessoa (comum quando ela aparece em BOs
+diferentes com pequenas variações de grafia), use o botão "Mesclar
+registros" na tela de Registros.
+  - Passo 1: escolha os dois registros digitando o nome em cada
+    campo de busca (Registro A e Registro B).
+  - Passo 2: uma tela de comparação mostra, campo a campo, o valor
+    do Registro A e do Registro B lado a lado, e uma terceira
+    coluna "Valor final" que é o que REALMENTE será salvo. Os
+    botões A/B são só um atalho para preencher essa coluna
+    rapidamente — o campo final pode ser editado livremente, então
+    dá para corrigir, combinar as duas informações ou digitar um
+    valor diferente dos dois, se for o caso.
+  - Quando os dois registros têm valores DIFERENTES num campo de
+    texto livre (organização, cargo, observações, endereço etc.),
+    aparece um botão "Manter os dois", que junta as duas
+    informações automaticamente no campo final (você ainda pode
+    ajustar o texto depois). Esse botão não aparece em campos de
+    lista fechada (status, grau de confiabilidade etc.), onde só
+    um valor pode valer por vez.
+  - Ao confirmar, o registro final fica com o número do Registro A.
+    Fotos, ocorrências, materiais apreendidos, boletins e biqueiras
+    do Registro B são automaticamente transferidos para o registro
+    final. O Registro B é excluído.
+  - Essa ação NÃO PODE SER DESFEITA. A trilha de auditoria do
+    registro final guarda um evento "MERGE" registrando qual
+    registro foi absorvido, por quem e quando.
+
+
+------------------------------------------------------------
+ 5. DIAGRAMA DE VÍNCULOS
+------------------------------------------------------------
+
+Gerado AUTOMATICAMENTE — quando dois ou mais registros têm a mesma
+organização criminosa cadastrada, o sistema os conecta num diagrama
+(a comparação ignora maiúsculas/minúsculas e espaços extras). Cada
+integrante aparece com nome e cargo; clique nele para abrir o
+registro. Use o filtro para ver uma organização específica.
+Registros inativos/arquivados aparecem esmaecidos.
+
+Dica: para o diagrama funcionar bem, padronize a grafia do nome
+da organização ao cadastrar.
+
+ARRASTAR E REORGANIZAR (Analista e Administrador): dentro de cada
+diagrama, clique e arraste qualquer nome — ou a própria organização,
+no centro — para uma posição diferente. A posição fica salva
+automaticamente (não precisa clicar em nada para confirmar) e
+continua lá da próxima vez que você abrir o diagrama, mesmo depois
+de fechar o sistema. Use o botão "Reorganizar automaticamente" no
+topo de cada diagrama para descartar os ajustes manuais e voltar
+ao arranjo circular padrão.
+
+
+------------------------------------------------------------
+ 6. OCORRÊNCIAS
+------------------------------------------------------------
+
+Diferente do cadastro de pessoas, a aba "Ocorrências" registra fatos
+criminosos: local, data, tipo de crime, autor, vítima e testemunhas
+— cada um com seu próprio endereço e coordenadas.
+
+  - O autor pode ser vinculado a uma pessoa já cadastrada (busca por
+    nome) ou informado livremente, com endereço próprio.
+  - Em cada campo de endereço há um botão "Localizar coordenadas
+    pelo endereço" (precisa de internet no momento do clique). Se
+    preferir, digite a coordenada manualmente.
+  - Depois de criada, dá para adicionar quantas testemunhas forem
+    necessárias, e registrar os materiais apreendidos naquele fato.
+  - A listagem pode ser filtrada por autora vinculada — o link
+    aparece automaticamente na coluna "Ocorrências" da aba
+    Registros (seção 4), abrindo aqui já filtrado por aquela pessoa.
+  - A exclusão definitiva é restrita ao Administrador; ao excluir
+    uma ocorrência, os materiais vinculados não são apagados, só
+    deixam de estar ligados a uma ocorrência específica.
+
+
+------------------------------------------------------------
+ 7. MATERIAIS APREENDIDOS
+------------------------------------------------------------
+
+A aba "Materiais" centraliza objetos, armas, drogas, veículos,
+dinheiro e documentos apreendidos — cadastrados avulsamente, dentro
+de uma ocorrência específica, ou automaticamente ao importar um BO.
+
+  - Campos: categoria, objeto, quantidade, marca, modelo, cor,
+    situação, número de lacre, bairro/cidade (para estatística) e
+    vínculo opcional com uma ocorrência e/ou uma pessoa.
+  - FILTRO POR PESSOA: na aba Materiais dá para filtrar por
+    "envolvido cadastrado" — digite o nome e veja todos os
+    materiais já apreendidos com essa pessoa ao longo do tempo,
+    mesmo em ocorrências diferentes. O mesmo filtro aparece como
+    atalho dentro do registro da própria pessoa.
+
+
+------------------------------------------------------------
+ 8. MAPA
+------------------------------------------------------------
+
+Reúne geograficamente os pontos de todas as ocorrências: local do
+fato, residência da vítima, do autor e de cada testemunha — cada
+tipo com uma cor própria.
+
+  - Filtros: tipo de crime, autor (isola e traça uma linha entre a
+    residência do autor e cada local de fato associado — útil para
+    visualizar a correlação), tipos de ponto, e "somente ocorrências
+    com material apreendido".
+  - "Mostrar mancha de calor" ativa uma camada de concentração
+    estatística sobre os pontos exibidos no momento.
+  - LISTA DE PONTOS SEMPRE VISÍVEL: gerada diretamente pelo sistema,
+    sem depender de internet nem de JavaScript — aparece logo abaixo
+    do mapa. Mesmo que o desenho do mapa visual não carregue (por
+    exemplo, se a rede da unidade bloquear os serviços externos
+    usados para desenhá-lo), os dados continuam visíveis nessa lista.
+  - Se você tem ocorrências cadastradas mas o mapa parece vazio, o
+    motivo mais comum é: nenhuma delas tem coordenadas ainda. O
+    sistema avisa isso claramente na tela.
+
+
+------------------------------------------------------------
+ 9. IMPORTAR BOLETIM DE OCORRÊNCIA (recurso opcional)
+------------------------------------------------------------
+
+Permite ler um PDF de BO do SISP/PCMG e cadastrar os envolvidos sem
+digitar tudo de novo.
+
+ATIVAÇÃO: por depender de um componente adicional de leitura de PDF,
+vem desligado por padrão. Feche o sistema e dê dois cliques em
+"Ativar Importacao de BO.bat" (uma única vez, exige internet). Depois
+abra o SIRIO normalmente — o menu "Importar BO" aparece.
+
+COMO USAR:
+  1. No menu "Importar BO", selecione o arquivo PDF do boletim.
+  2. O sistema mostra os envolvidos encontrados, com os dados já
+     preenchidos. Confira, marque quem deseja cadastrar (o autor já
+     vem marcado) e ajuste o que for necessário.
+  3. Preencha os campos de vínculo investigativo (organização,
+     cargo, fonte, confiabilidade) — não vêm do BO, são da análise.
+  4. Confira a seção "Criar ocorrência a partir deste BO" — já vem
+     com tipo de crime, data, endereço, bairro e cidade sugeridos.
+  5. Se o BO tiver materiais apreendidos, cada item aparece listado
+     com sugestão de categoria, já vinculado a quem estava com ele.
+  6. Clique em "Cadastrar os marcados" para concluir.
+
+VERIFICAÇÃO DE DUPLICIDADE: antes de mostrar a tela de conferência,
+o sistema procura, para cada envolvido, se ele já está cadastrado —
+verificando primeiro por CPF, depois por RG e por último pelo nome
+(nessa ordem de prioridade). Se achar um possível cadastro já
+existente, aparece um aviso com o nome e o link do registro, e duas
+opções: "Incluir estes dados no registro existente" (marcada por
+padrão) ou "Cadastrar como registro novo mesmo assim".
+  - Ao incluir num registro existente, o sistema só PREENCHE OS
+    CAMPOS QUE ESTAVAM EM BRANCO — nunca substitui uma informação
+    que já estava lá. A observação nova é ACRESCENTADA à antiga
+    (nada é apagado), e o boletim passa a aparecer também na aba
+    "Boletins de Ocorrência" desse registro.
+
+TERMINOLOGIA DO REDS: o "tipo de envolvimento" de cada pessoa (o
+selo que aparece ao lado do nome na tela de conferência) usa a
+designação exata como está escrita no próprio REDS — por exemplo,
+"VÍTIMA DE AÇÃO CRIMINAL / CÍVEL" continua aparecendo assim, em vez
+de ser generalizado para um rótulo genérico como "Envolvido". Autor
+e Testemunha continuam sendo reconhecidos e simplificados para esses
+dois nomes (mesmo quando o REDS traz uma variação mais longa, como
+"TESTEMUNHA DA AÇÃO DOS POLICIAIS/BOMBEIROS"), porque o restante do
+sistema usa esses dois valores para saber quem é o autor da
+ocorrência.
+
+CRIAR CASO DE VIOLÊNCIA DOMÉSTICA JUNTO COM A IMPORTAÇÃO: na tela de
+conferência, marque a caixa "Este boletim é um caso de Violência
+Doméstica e Familiar contra a Mulher" para que o sistema crie o caso
+automaticamente no módulo "Violência Doméstica", sem precisar fazer
+isso na mão depois.
+  - Ao marcar essa caixa, um campo novo aparece dentro de cada
+    envolvido: "Papel desta pessoa no caso de Violência Doméstica"
+    (mulher atendida, suposto autor, testemunha, representante
+    legal, filho/dependente, familiar, pessoa de confiança,
+    profissional da rede ou outro). O sistema já sugere um papel a
+    partir do que está escrito no REDS — Autor sugere "Suposto
+    autor", Testemunha sugere "Testemunha", e qualquer designação de
+    vítima (ex.: "VÍTIMA DE AÇÃO CRIMINAL / CÍVEL") já sugere "Mulher
+    atendida" — mas você pode trocar à vontade.
+  - O caso criado já vem com o REDS, o município, a data e o local
+    do fato preenchidos, JÁ VINCULADO à ocorrência criada na mesma
+    importação (que carrega o tipo de crime/artigo informado), e com
+    cada pessoa marcada já vinculada ao caso com o papel escolhido.
+  - Depois de salvar, o sistema leva você direto para a tela do caso
+    criado (aba "Violência Doméstica").
+  - A listagem de casos mostra uma coluna "Tipo penal", puxada
+    automaticamente da ocorrência vinculada — é o "artigo e tipo
+    penal" do caso, sem precisar digitar de novo.
+  - Se você não marcar essa caixa, a importação funciona exatamente
+    como antes, sem criar nenhum caso de Violência Doméstica.
+
+CUIDADOS: a leitura automática é um apoio, não substitui a
+conferência — o layout do BO pode variar. Nem todo envolvido de um
+BO é investigado: testemunhas e familiares aparecem na lista, mas
+cabe a você decidir quem entra no banco.
+
+
+------------------------------------------------------------
+ 10. IMPORTAR/EXPORTAR CSV (somente administrador)
+------------------------------------------------------------
+
+Na tela de Registros há os botões "Importar CSV" e "Exportar CSV"
+(separador ponto-e-vírgula, abre certo no Excel).
+
+  - Exportar gera um arquivo com todos os registros.
+  - Importar aceita um arquivo no mesmo formato — cada linha vira
+    um NOVO registro (não atualiza registros existentes). A coluna
+    "nome" é obrigatória, as demais são opcionais.
+  - Dica: exporte primeiro, abra no Excel, apague as linhas de
+    exemplo, preencha as suas e salve novamente como CSV.
+  - Atenção: importar o mesmo arquivo duas vezes gera duplicatas
+    (que podem depois ser unidas pela mesclagem, seção 4).
+
+
+------------------------------------------------------------
+ 11. CONFIGURAÇÕES (somente administrador)
+------------------------------------------------------------
+
+Lugar central para ajustar o sistema sem precisar mexer no código
+nem pedir uma nova versão.
+
+LISTAS CONFIGURÁVEIS: Tipos de crime, Categorias de material
+apreendido, Situações de material apreendido, Fontes de informação
+e Graus de confiabilidade são listas que O PRÓPRIO ADMINISTRADOR
+cadastra e ajusta.
+  - Para adicionar: digite o valor e clique em "Adicionar". A opção
+    aparece IMEDIATAMENTE nos formulários.
+  - Para remover: use "Desativar" (não existe "excluir"). Ela some
+    das telas de novo cadastro, mas registros antigos continuam
+    mostrando normalmente. Dá pra "Reativar" a qualquer momento.
+
+PAINEL GERAL: resumo rápido com total de pessoas, ocorrências,
+materiais apreendidos e usuários ativos.
+
+BACKUP PELO PRÓPRIO SISTEMA: botão "Criar backup agora" que faz a
+mesma cópia do "Fazer Backup.bat", sem precisar sair do SIRIO.
+
+
+------------------------------------------------------------
+ 12. BACKUP E RECUPERAÇÃO
+------------------------------------------------------------
+
+Todo o sistema — dados, fotos, ocorrências, tudo — está guardado no
+arquivo sirio.db e na pasta fotos\, ambos na pasta do SIRIO. É isso
+que o backup copia.
+
+A pasta certificados\ NÃO entra no backup: ela contém a chave privada
+do HTTPS, que não deve sair deste computador. Se o certificado se
+perder, gere outro com "Gerar Certificado HTTPS.bat" — lembrando que,
+nesse caso, o novo certificado precisa ser instalado de novo em cada
+computador cliente.
+
+A cópia do banco é feita pelo mecanismo do próprio SQLite, então sai
+íntegra mesmo com o sistema aberto e em uso.
+
+ATENÇÃO: o backup contém dados sensíveis de investigação e as
+fotografias cadastradas. Proteja a pasta backups\ e as mídias com o
+mesmo cuidado que o banco de dados.
+
+COMO FAZER BACKUP:
+  - Pelo arquivo: dois cliques em "Fazer Backup.bat".
+  - Pelo sistema: botão "Criar backup agora" na aba Configurações.
+  Qualquer uma das duas cria uma cópia datada em "backups\".
+
+Dica: crie o hábito de fazer backup semanalmente e, de vez em
+quando, copiar a pasta "backups" para um pen drive ou HD externo
+guardado fora deste computador.
+
+COMO RESTAURAR: feche o sistema; renomeie o "sirio.db" atual (por
+garantia); copie o "sirio.db" e a pasta "fotos" de dentro do backup
+desejado para a pasta do sistema; abra o SIRIO normalmente. Se a
+pasta certificados\ também tiver se perdido, gere um certificado novo
+pelo atalho próprio.
+
+SE APAGAR ALGO SEM QUERER: confira a Lixeira do Windows primeiro
+(clique direito > Restaurar); se não estiver lá, restaure pelo
+backup mais recente.
+
+
+------------------------------------------------------------
+ 13. USO EM REDE DA UNIDADE
+------------------------------------------------------------
+
+Por padrão, o SIRIO só pode ser acessado no computador onde está
+rodando. Para outros computadores da MESMA REDE INTERNA acessarem,
+use "Iniciar SIRIO (Rede da Unidade).bat" em vez do atalho normal.
+
+  - A janela preta mostra o endereço que os demais computadores
+    devem digitar no navegador (ex.: https://192.168.0.10:8377).
+  - Na primeira vez, o Windows pode perguntar sobre o firewall:
+    marque apenas "Redes privadas".
+  - Deve rodar sempre no mesmo computador, de preferência fixo, que
+    concentra o banco de dados e os backups.
+  - Cada colega entra com o próprio login, nunca compartilhando
+    senha.
+
+Atenção: nunca exponha o sistema à internet (redirecionamento de
+porta no roteador, túnel etc.). O SIRIO foi feito para rede interna
+e isolada; acesso externo de verdade exige infraestrutura
+institucional autorizada.
+
+
+  CERTIFICADO HTTPS NOS COMPUTADORES CLIENTES
+
+  O SIRIO usa HTTPS para criptografar os dados em trânsito. Depois de
+  copiar o pacote para o computador que será o servidor, execute
+  "Gerar Certificado HTTPS.bat" uma única vez. Ele cria um certificado
+  interno para o nome e IP daquele computador. Depois, ele precisa ser
+  confiado uma única vez em cada computador cliente:
+
+    1. Copie somente "certificados\sirio-certificado.cer" para o
+       computador cliente. Nunca copie "sirio-chave-privada.pem".
+    2. Dê duplo clique no arquivo .cer, escolha "Instalar certificado",
+       depois "Computador Local" e "Autoridades de Certificação Raiz
+       Confiáveis".
+    3. Confirme a instalação e abra novamente o endereço HTTPS mostrado
+       pelo SIRIO.
+
+  A instalação deve ser feita por pessoa autorizada. O certificado criado
+  é válido por três anos. Se o computador servidor mudar de nome ou IP,
+  execute novamente o gerador antes de utilizar o novo endereço.
+
+
+------------------------------------------------------------
+ 14. SEGURANÇA E BOAS PRÁTICAS
+------------------------------------------------------------
+
+JÁ EMBUTIDO NO SISTEMA:
+  - Senhas armazenadas de forma cifrada (não reversível, PBKDF2).
+  - Controle de permissões por perfil de usuário.
+  - Trilha de auditoria completa: login, visualização, cadastro,
+    edição (campo a campo, com valor anterior e novo), status,
+    exclusão, exportação, mesclagem e backup.
+  - Preservação do histórico ao arquivar/inativar, em vez de excluir.
+  - Operação restrita ao computador local ou à rede interna.
+
+RESPONSABILIDADES DO USUÁRIO:
+  - Use disco criptografado (BitLocker) e bloqueie a sessão do
+    Windows (Win+L) ao se ausentar.
+  - Nunca compartilhe login e senha.
+  - Utilize dados fictícios em qualquer teste ou demonstração.
+  - Use o sistema apenas mediante autorização formal da chefia,
+    dentro das normas internas de segurança da informação.
+  - Esqueceu a senha? Feche o sistema e dê dois cliques em
+    "Resetar Senha.bat", seguindo as instruções na tela.
+
+
+------------------------------------------------------------
+ 15. SOLUÇÃO DE PROBLEMAS COMUNS
+------------------------------------------------------------
+
+  "Python não encontrado" ao abrir
+    -> Não foi instalado, ou instalado sem marcar "Add Python to
+       PATH". Reinstale marcando essa opção.
+
+  A janela preta abre e fecha na hora
+    -> Abra o PowerShell na pasta do sistema e digite:
+       python sirio.py
+       A mensagem de erro que aparecer indica o problema.
+
+  O navegador não abriu sozinho
+    -> Abra manualmente e digite: https://localhost:8377
+
+  "A porta já está em uso"
+    -> O sistema provavelmente já está aberto em outra janela.
+       Feche todas as janelas pretas e abra de novo.
+
+  Mapa não mostra as ruas de fundo
+    -> A rede da unidade pode estar bloqueando o serviço de mapas.
+       Os pontos e a lista de dados continuam funcionando normalmente.
+
+  Perdi dados / apaguei algo sem querer
+    -> Confira a Lixeira do Windows primeiro; depois, restaure pelo
+       backup mais recente (seção 12).
+
+Dica: qualquer mensagem de erro que aparecer na janela preta é a
+informação mais valiosa para diagnosticar o problema — anote ou
+copie o texto completo antes de pedir apoio técnico.
+
+
+------------------------------------------------------------
+ 16. MÓDULO DE VIOLÊNCIA DOMÉSTICA
+------------------------------------------------------------
+
+Novo item no menu: "Violência Doméstica". Módulo de apoio ao
+registro, acompanhamento e gestão de casos de violência doméstica
+e familiar contra a mulher. NÃO substitui a análise profissional
+nem a decisão da autoridade policial — isso está escrito em aviso
+fixo na tela principal do módulo.
+
+O QUE JÁ FUNCIONA:
+  - Cadastro do caso: identificação (REDS, inquérito, processo,
+    medida protetiva), dados do atendimento, dados do fato, relato
+    da mulher e observações do servidor (guardados em campos
+    separados), nível de sigilo. O caso é sempre salvo como
+    "Rascunho" e pode ser retomado depois — nada obriga a preencher
+    tudo de uma vez.
+  - Pessoas envolvidas: reaproveita o cadastro de pessoas que você
+    já usa no resto do SIRIO (Registros) — nunca duplica um
+    cadastro. Você vincula uma pessoa já existente (ou cadastra uma
+    nova rapidamente) e escolhe o papel dela no caso: mulher
+    atendida, suposto autor, testemunha, representante legal,
+    filho/dependente, familiar, pessoa de confiança, profissional
+    da rede ou outro.
+  - Criação automática a partir da importação de BO: ao importar um
+    Boletim de Ocorrência (seção 9), dá para marcar que aquele
+    boletim é um caso de Violência Doméstica — o sistema cria o
+    caso sozinho, já vinculado à ocorrência e com cada pessoa
+    marcada já vinculada ao caso, com o papel escolhido na hora da
+    importação. Veja os detalhes na seção 9.
+  - Dados específicos da mulher atendida: telefones e forma segura
+    de contato, autorização para ligação/mensagem, palavras que não
+    podem aparecer em mensagens, indicação de telefone controlado
+    pelo agressor (gera aviso destacado na tela), endereço seguro,
+    pessoa de confiança, vulnerabilidades (gravidez, dependência
+    econômica, deficiência etc.) e percepção de risco relatada.
+  - Dados específicos do suposto autor: relacionamento com a
+    mulher, convivência, acesso a arma de fogo, vínculo com forças
+    de segurança, uso de álcool/drogas, históricos de ameaça,
+    agressão e perseguição, medidas protetivas e descumprimentos
+    anteriores — sempre com um campo indicando se a informação é
+    relatada pela mulher, confirmada em consulta, ou pendente de
+    verificação.
+  - Caracterização da violência: formas de violência (física,
+    psicológica, sexual, patrimonial, moral) e marcadores
+    operacionais complementares (ameaça de morte, estrangulamento,
+    isolamento, violência digital etc.) — ambas as listas são
+    GERENCIADAS PELO ADMINISTRADOR na aba Configurações, junto com
+    as demais listas do sistema.
+  - Vínculo com ocorrências: liga o caso a ocorrências já
+    cadastradas no SIRIO (inclusive as importadas de Boletim de
+    Ocorrência) — os dados do fato continuam existindo só na
+    ocorrência, não são duplicados no módulo de VD.
+  - Alerta de possível reincidência: ao abrir um caso, o sistema
+    avisa se a mesma mulher ou o mesmo suposto autor (cadastro do
+    SIRIO) já aparece em outro caso de violência doméstica. O
+    sistema NUNCA afirma que são a mesma pessoa por coincidência de
+    nome — a confirmação é sempre humana.
+  - Mudança de situação do caso: encerrar ou reabrir um caso exige
+    justificativa (pedida na hora, obrigatória).
+
+Com a Onda 5, o módulo de Violência Doméstica fica com todas as telas
+operacionais planejadas prontas — não há mais pendências de tela; o
+que continuar vindo depois disso passa a ser refinamento, não item
+em falta.
+
+LINHA DO TEMPO (dentro do caso, link "Ver linha do tempo"): mostra,
+em ordem cronológica, tudo o que já aconteceu no caso — criação,
+vínculos de pessoas e ocorrências, aplicações do FONAR, avaliações
+profissionais, medidas protetivas e seus itens, descumprimentos,
+diligências, encaminhamentos e acompanhamentos. Eventos de possível
+descumprimento aparecem marcados em vermelho na linha.
+
+CASO CADASTRADO POR ENGANO: na tela do caso há duas opções, e elas
+servem para coisas diferentes.
+
+  CANCELAR CADASTRO (Analista e Administrador). Para caso criado
+  errado: duplicado, teste, dados trocados, REDS errado. O sistema
+  pede o motivo, que fica registrado na linha do tempo e na
+  auditoria. O caso sai das listagens e deixa de contar nos painéis,
+  mas NADA é apagado — para trazer de volta, basta alterar a
+  situação para outra qualquer.
+
+  EXCLUIR (somente Administrador). Apaga o caso e tudo que depende
+  dele: relato da mulher, ficha específica, FONAR e respostas,
+  avaliações profissionais, medidas protetivas com seus itens e
+  descumprimentos, diligências, encaminhamentos, acompanhamentos,
+  anexos e linha do tempo. NÃO PODE SER DESFEITO. Fica registrado na
+  auditoria quem excluiu, quando e qual era o número do caso.
+
+  Na dúvida, cancele. Cancelar resolve o problema da tela sem perder
+  nada, e a exclusão continua disponível depois.
+
+  Atenção: "Cancelado" não é a mesma coisa que "Encerrado". Encerrado
+  é desfecho de caso real e continua nas estatísticas. Cancelado é
+  registro que nunca deveria ter existido, e por isso fica fora
+  delas.
+
+PAINEL OPERACIONAL (link "Painel operacional" na aba Violência
+Doméstica): filas de trabalho para a triagem do dia — casos novos,
+aguardando providência, FONAR pendente, avaliação profissional
+pendente, medidas aguardando decisão ou intimação, diligências e
+acompanhamentos vencidos, descumprimentos em aberto, casos sem
+responsável e casos parados há mais de 30 dias. Cada item da lista
+já é um link direto para o caso.
+
+PAINEL GERENCIAL (link "Painel gerencial"): indicadores agregados —
+total de casos, por situação, por mês, por município, formas de
+violência mais frequentes, medidas protetivas por situação,
+descumprimentos, diligências e encaminhamentos por instituição.
+Filtrável por município e período. IMPORTANTE: este painel nunca
+soma ou classifica nada por servidor individual — só agregados
+institucionais, por decisão de projeto.
+
+RELATÓRIO DO CASO (dentro do caso, link "Gerar relatório do caso"):
+reúne identificação, dados do fato, pessoas envolvidas,
+caracterização da violência, aplicações do FONAR (com a contagem de
+fatores de atenção de cada uma), medidas protetivas, diligências e
+encaminhamentos numa única página pronta para impressão — use o
+botão "Imprimir / salvar em PDF" da própria tela (ou Ctrl+P), que
+usa a função de impressão do navegador; o SIRIO continua sem
+precisar de nenhuma instalação extra para isso.
+  - Sempre mostra quem emitiu e quando.
+  - Quando o caso tem nível de sigilo diferente de "Normal", o
+    relatório ganha uma marca d'água e o título "CONFIDENCIAL".
+  - Toda emissão de relatório fica registrada na auditoria do caso.
+
+DILIGÊNCIAS (dentro do caso, botão "Nova diligência"): descrição,
+tipo (gerenciado pelo Administrador em Configurações), prioridade,
+responsável, unidade responsável, prazo e situação (pendente,
+distribuída, em andamento, aguardando resposta, concluída,
+prejudicada, cancelada).
+  - Quando o prazo passa e a diligência ainda está numa situação em
+    aberto, aparece um selo "Vencida" na linha dela e um aviso no
+    topo do caso contando quantas estão vencidas. O selo some
+    sozinho assim que a situação muda para concluída, prejudicada
+    ou cancelada.
+  - Esse mesmo alerta também aparece na listagem geral de casos,
+    junto com o de descumprimento de medida protetiva.
+
+ENCAMINHAMENTOS À REDE DE PROTEÇÃO (dentro do caso, botão "Novo
+encaminhamento"): instituição (Assistência Social, Saúde,
+Defensoria Pública, Conselho Tutelar, abrigo, entre outras — lista
+gerenciada pelo Administrador em Configurações), serviço, motivo,
+data, se o documento foi enviado, e depois — editando o
+encaminhamento — a confirmação de recebimento e o retorno da
+instituição.
+  - Ao registrar, o sistema lembra: encaminhe só as informações
+    necessárias para a finalidade — não exponha à rede dados do
+    caso que não sejam pertinentes ao serviço solicitado.
+
+ACOMPANHAMENTO E CONTATO SEGURO (dentro do caso, botão "Novo
+acompanhamento"): data prevista, data realizada, meio de contato,
+se o contato seguro foi confirmado, resultado, situação atual
+informada pela mulher, novos fatos relatados, se foi relatado
+descumprimento, e se há necessidade de nova providência ou de
+reavaliação (novo FONAR).
+  - Antes de mostrar o formulário, o sistema exibe as restrições de
+    contato seguro já registradas para a mulher atendida (telefone
+    seguro, horário, palavras que não podem aparecer em mensagens,
+    e um aviso destacado se o telefone estiver marcado como
+    controlado pelo agressor) — o mesmo lembrete usado no FONAR.
+  - Quando a data prevista de um acompanhamento já passou e ele
+    ainda não foi realizado, aparece um selo "Pendente" na linha.
+
+MEDIDAS PROTETIVAS (dentro do caso, botão "Nova medida protetiva"):
+registra a solicitação, a decisão judicial, as intimações e a
+vigência de uma medida protetiva de urgência.
+  - Situações possíveis (sempre visíveis na tela): em elaboração,
+    solicitada, enviada ao juízo, aguardando decisão, deferida,
+    parcialmente deferida, indeferida, pendente de intimação,
+    vigente, descumprida, revogada, substituída, encerrada.
+  - ITENS INDIVIDUALIZADOS: dentro de cada medida, cadastre quantos
+    itens forem necessários (afastamento do lar, proibição de
+    aproximação, distância mínima, restrição de contato por
+    telefone/mensagem/redes sociais, suspensão de porte de arma,
+    monitoração eletrônica, restrições quanto aos filhos, entre
+    outros) — cada um com sua própria situação e vigência. Os tipos
+    dessa lista são gerenciados pelo Administrador em Configurações
+    ("Violência doméstica — Tipos de medida protetiva"), do mesmo
+    jeito que as outras listas do sistema.
+
+DESCUMPRIMENTO DE MEDIDA PROTETIVA (dentro da medida, botão
+"Registrar descumprimento"): registra data/hora, local, forma,
+relato, provas, testemunhas, se houve contato/aproximação/ameaça/
+agressão/prisão, providências adotadas, procedimento relacionado e
+a situação da apuração.
+  - ALERTA: ao registrar um descumprimento cuja apuração ainda não
+    foi concluída, um selo vermelho "Descumprimento" aparece
+    imediatamente na medida, no topo do caso e na sua listagem
+    geral de casos — visível a qualquer um com acesso ao caso. O
+    SIRIO não envia e-mail nem notificação por fora do sistema; o
+    alerta é sempre essa marcação bem visível dentro dele. Quando a
+    apuração é marcada como concluída ou arquivada, o alerta some
+    sozinho.
+  - Nenhum descumprimento apaga ou substitui outro — ficam todos
+    guardados, formando o histórico de cumprimento da medida.
+
+FONAR — FORMULÁRIO NACIONAL DE AVALIAÇÃO DE RISCO (dentro do
+registro da mulher atendida, link "FONAR"): versão eletrônica do
+formulário oficial instituído pela Lei nº 14.149/2021 e pela
+Resolução Conjunta CNJ/CNMP nº 5/2020, aplicado no primeiro
+atendimento à mulher em situação de violência doméstica.
+  - Segue a estrutura oficial: identificação das partes e do
+    vínculo entre elas, e os quatro blocos de perguntas objetivas
+    (histórico de violência; sobre o suposto agressor; sobre a
+    vítima; outras informações importantes).
+  - Cada aplicação fica preservada para sempre — aplicar um FONAR
+    novo NUNCA apaga ou substitui uma aplicação anterior. Isso
+    forma um histórico de como o risco evoluiu ao longo do tempo.
+  - Perguntas em branco não impedem salvar — não é preciso
+    responder tudo de uma vez.
+  - Ao abrir uma aplicação salva, o sistema realça em vermelho as
+    respostas que a literatura e o Guia Interinstitucional de
+    Avaliação de Risco do CNJ reconhecem como fatores que exigem
+    atenção imediata (por exemplo: ameaça com arma, agressão física
+    grave, descumprimento de medida protetiva anterior, isolamento,
+    entre outros).
+  - IMPORTANTE: isso é só um REALCE de respostas — o sistema NUNCA
+    calcula uma pontuação nem classifica o caso como "baixo/médio/
+    alto risco" automaticamente. A leitura e a decisão continuam
+    sendo sempre do profissional responsável.
+
+AVALIAÇÃO PROFISSIONAL (dentro do caso, botão "Nova avaliação
+profissional"): registro da análise do profissional — síntese do
+caso, fatores de risco e de proteção identificados, vulnerabilidades,
+percepção da mulher, se há crianças expostas, se há indício de arma,
+providências consideradas e justificativa. A conclusão é sempre
+atribuída ao profissional responsável, nunca ao sistema. Fica
+registrado se é necessária uma reavaliação e para quando.
+
+IMPORTANTE: o sistema NUNCA calcula pontuação de risco nem
+classifica "baixo/médio/alto" automaticamente — isso é e continuará
+sendo decisão profissional, não do sistema.
+
+PERFIS: por enquanto, o módulo usa os mesmos 3 perfis do resto do
+SIRIO (Consulta só visualiza; Analista e Administrador cadastram e
+editam). Perfis mais específicos deste módulo (Gestor, Autoridade
+policial etc.) ainda não foram criados — é uma decisão maior, que
+afeta o sistema inteiro, e será conversada antes de ser feita.
+
+
+------------------------------------------------------------
+ 17. VERIFICAÇÃO DE DENÚNCIAS
+------------------------------------------------------------
+
+Item de menu: "Verificação de denúncias". Serve para registrar as
+denúncias que chegam à unidade — Disque 100, WhatsApp, telefone,
+atendimento presencial, ofício de outro órgão — e acompanhar a
+averiguação inicial feita pelo servidor.
+
+O QUE SE REGISTRA:
+  - Origem: protocolo de atendimento, canal por onde chegou, órgão
+    que encaminhou, datas da denúncia e do fato, natureza, município
+    e local do fato.
+  - Envolvidos: vítima e autor. Digitando um nome já cadastrado em
+    Registros, o sistema aproveita a qualificação (RG, CPF, filiação,
+    cônjuge) e traz o endereço do cadastro — mas só se o campo de
+    endereço ainda estiver vazio, para não apagar o que você apurou.
+  - Endereço e coordenadas da vítima, do autor e do local do fato,
+    com o mesmo botão "Localizar coordenadas pelo endereço" usado em
+    Ocorrências. Preenchidas as coordenadas, os pontos aparecem no
+    Mapa junto com as ocorrências, com o miolo claro e a borda
+    tracejada para você distinguir o que ainda é denúncia em apuração.
+  - Boletim de ocorrência: se foi registrado, o número (REDS) e, se
+    quiser, o vínculo com uma ocorrência já cadastrada no SIRIO.
+  - Averiguação: o relatório de averiguação inicial (texto livre),
+    as diligências pendentes (uma por linha) e a conclusão.
+  - Dados da Comunicação de Serviço: número, data, OS, PCNET, REQ,
+    destinatário e quem assina. O cargo e o MASP ficam guardados no
+    seu usuário e já vêm preenchidos na próxima verificação.
+
+SITUAÇÕES: Em verificação, Aguardando resposta de outro órgão,
+Concluída e Arquivada. A lista traz um panorama com a contagem de
+cada uma e filtros por situação, canal, boletim e busca livre.
+
+GERAR A COMUNICAÇÃO DE SERVIÇO: na ficha da verificação, o botão
+"Gerar Comunicação de Serviço (Word)" baixa o documento pronto, com
+o cabeçalho, as qualificações, o registro de ocorrência, as
+diligências realizadas (um parágrafo por bloco do seu relatório), as
+diligências pendentes em lista numerada e a assinatura. O documento
+sai do arquivo modelos\comunicacao_servico.docx — TROQUE O CABEÇALHO
+DESSE ARQUIVO PELO TIMBRE DA SUA UNIDADE antes do primeiro uso. Se o
+modelo não for encontrado, o sistema avisa na tela e continua
+guardando os registros normalmente, só sem gerar o Word.
+
+PERFIS: Consulta visualiza; Analista e Administrador cadastram e
+editam; só o Administrador exclui.
