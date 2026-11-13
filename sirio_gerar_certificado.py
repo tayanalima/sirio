@@ -48,7 +48,15 @@ def main():
             x509.DNSName("localhost"), x509.DNSName(host),
             x509.IPAddress(ip_address("127.0.0.1")), x509.IPAddress(ip_address(ip)),
         ]), critical=False)
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        # É uma autoridade interna autoassinada: clientes precisam poder
+        # confiá-la (inclusive Firefox, que rejeita certificado de servidor
+        # comum importado como autoridade). Continua restrita aos nomes/IPs
+        # expressos no SAN acima.
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, content_commitment=False, key_encipherment=True,
+            data_encipherment=False, key_agreement=False, key_cert_sign=True,
+            crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
         .sign(chave, hashes.SHA256()))
     CHAVE.write_bytes(chave.private_bytes(serialization.Encoding.PEM,
         serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))

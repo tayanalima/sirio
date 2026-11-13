@@ -245,6 +245,64 @@ def _bo_materiais(texto):
     return materiais
 
 
+def _bo_veiculos(texto):
+    """Extrai veículos da seção própria do REDS, para conferência antes da gravação."""
+    inicio = re.search(r"VE[IÍ]CULOS?(?:\s+ENVOLVIDOS)?", texto, re.I)
+    if not inicio:
+        return []
+    trecho = texto[inicio.start():]
+    trecho = re.split(r"\n(?:MATERIAIS E ARMAS|HISTÓRICO DA OCORRÊNCIA|PERÍCIA TÉCNICA)", trecho,
+                       maxsplit=1, flags=re.I)[0]
+    partes = re.findall(r"VE[IÍ]CULO\s+(\d+)\s*\n(.*?)(?=\nVE[IÍ]CULO\s+\d+\s*\n|$)", trecho, re.S | re.I)
+    if not partes:
+        partes = [("", trecho)]
+
+    def valor(linhas, *rotulos):
+        for i, linha in enumerate(linhas):
+            u = linha.strip().upper()
+            if any(u.startswith(r) for r in rotulos):
+                for rotulo in rotulos:
+                    if not u.startswith(rotulo):
+                        continue
+                    resto = linha.strip()[len(rotulo):].strip(" :.-")
+                    if resto and resto.upper() not in _BO_DESCARTAR:
+                        return resto
+                for proxima in linhas[i + 1:i + 3]:
+                    v = _bo_limpa(proxima)
+                    if v:
+                        return v
+        return None
+
+    veiculos = []
+    for numero, corpo in partes:
+        linhas = corpo.split("\n")
+        placa = valor(linhas, "PLACA")
+        if placa:
+            placa = re.sub(r"[^A-Z0-9]", "", placa.upper())
+        marca_modelo = valor(linhas, "MARCA / MODELO", "MARCA/MODELO")
+        if marca_modelo:
+            pedacos = re.split(r"\s*/\s*|\s{2,}", marca_modelo, maxsplit=1)
+            marca, modelo = pedacos[0], (pedacos[1] if len(pedacos) > 1 else None)
+        else:
+            marca = valor(linhas, "MARCA")
+            modelo = valor(linhas, "MODELO")
+        veiculo = {
+            "envolv_nr": valor(linhas, "ENVOLVIDO") or numero,
+            "placa": placa, "marca": marca, "modelo": modelo,
+            "tipo": valor(linhas, "TIPO VEÍCULO", "TIPO DE VEÍCULO", "ESPÉCIE"),
+            "cor": valor(linhas, "COR"),
+            "ano_fabricacao": valor(linhas, "ANO FABRICAÇÃO", "ANO DE FABRICAÇÃO"),
+            "ano_modelo": valor(linhas, "ANO MODELO", "ANO DO MODELO"),
+            "municipio_placa": valor(linhas, "MUNICÍPIO EMPLACAMENTO", "MUNICIPIO EMPLACAMENTO", "MUNICÍPIO"),
+            "uf_placa": valor(linhas, "UF EMPLACAMENTO", "UF"),
+            "situacao": valor(linhas, "SITUAÇÃO", "SITUACAO"),
+            "observacoes": valor(linhas, "INFORMAÇÕES COMPLEMENTARES", "INFORMACOES COMPLEMENTARES"),
+        }
+        if any(veiculo[k] for k in ("placa", "marca", "modelo", "tipo")):
+            veiculos.append(veiculo)
+    return veiculos
+
+
 def _bo_envolvido(corpo):
     linhas = corpo.split("\n")
     def cd(r):
@@ -362,6 +420,7 @@ def parse_bo_pdf(caminho_pdf):
         "historico": _bo_historico(texto),
         "local_fato": _bo_local_fato(texto, fb_bairro, fb_cidade, fb_endereco),
         "materiais": _bo_materiais(texto),
+        "veiculos": _bo_veiculos(texto),
         "diagnostico": _bo_diagnostico(texto),
     }
 
@@ -458,7 +517,8 @@ def pagina_importar_upload(usuario, csrf, erro=""):
         <label class="span2">Arquivo PDF do BO
           <input type="file" name="bo" accept=".pdf,application/pdf" required></label>
         <div class="acoes span2"><button class="botao">Ler boletim</button></div>
-      </form>{msg}
+      </form>
+      <p class="suave">Tem uma exportação em Excel? <a href="/importar-sids">Importar planilha do Armazém SIDS</a>.</p>{msg}
     </div>
     <div class="cartao">
       <p class="aviso">A leitura automática é um apoio: confira sempre os dados na tela
@@ -490,7 +550,7 @@ def _categoria_sugerida(objeto):
 
 
 def pagina_importar_revisao(usuario, csrf, reds, envolvidos, historico=None, local_fato=None,
-                            materiais=None, diagnostico=None):
+                            materiais=None, diagnostico=None, veiculos=None):
     if not envolvidos:
         corpo = ('<div class="cab"><h1>Importar de Boletim de Ocorrência</h1></div>'
                  '<div class="vazio">Não foi possível identificar envolvidos neste PDF. '
@@ -500,6 +560,7 @@ def pagina_importar_revisao(usuario, csrf, reds, envolvidos, historico=None, loc
 
     local_fato = local_fato or {}
     materiais = materiais or []
+    veiculos = veiculos or []
 
     # Mapa de como o texto do BO foi lido. Fica recolhido: só interessa quando
     # algum campo vem errado e é preciso ajustar a leitura.
@@ -656,6 +717,25 @@ def pagina_importar_revisao(usuario, csrf, reds, envolvidos, historico=None, loc
           {itens_mat}
         </fieldset>"""
 
+    bloco_veiculos = ""
+    if veiculos:
+        itens_veic = ""
+        for j, v in enumerate(veiculos):
+            itens_veic += f"""
+            <fieldset><legend><label style="flex-direction:row;gap:.5rem;align-items:center;text-transform:none;font-size:.9rem">
+              <input type="checkbox" name="vei_incluir_{j}" value="1" checked style="width:auto">Cadastrar este veículo</label></legend>
+              <input type="hidden" name="vei_envolv_{j}" value="{e(v.get('envolv_nr')) or ''}">
+              <div class="grade">
+                <label>Placa<input name="vei_placa_{j}" value="{e(v.get('placa'))}"></label><label>Tipo<input name="vei_tipo_{j}" value="{e(v.get('tipo'))}"></label>
+                <label>Marca<input name="vei_marca_{j}" value="{e(v.get('marca'))}"></label><label>Modelo<input name="vei_modelo_{j}" value="{e(v.get('modelo'))}"></label>
+                <label>Cor<input name="vei_cor_{j}" value="{e(v.get('cor'))}"></label><label>Ano fabricação<input name="vei_ano_fabricacao_{j}" value="{e(v.get('ano_fabricacao'))}"></label>
+                <label>Ano modelo<input name="vei_ano_modelo_{j}" value="{e(v.get('ano_modelo'))}"></label><label>Município de emplacamento<input name="vei_municipio_placa_{j}" value="{e(v.get('municipio_placa'))}"></label>
+                <label>UF<input name="vei_uf_placa_{j}" value="{e(v.get('uf_placa'))}"></label><label>Situação<input name="vei_situacao_{j}" value="{e(v.get('situacao'))}"></label>
+                <label class="span2">Observações<input name="vei_observacoes_{j}" value="{e(v.get('observacoes'))}"></label>
+              </div></fieldset>"""
+        bloco_veiculos = f"""<fieldset><legend>Veículos encontrados no BO</legend>
+          <p class="suave">{len(veiculos)} veículo(s) encontrado(s). Eles ficarão disponíveis na aba Veículos.</p>{itens_veic}</fieldset>"""
+
     corpo = f"""
     <div class="cab"><h1>Conferir e cadastrar</h1></div>
     {cabecalho}
@@ -663,6 +743,7 @@ def pagina_importar_revisao(usuario, csrf, reds, envolvidos, historico=None, loc
       <input type="hidden" name="csrf" value="{e(csrf)}">
       <input type="hidden" name="total" value="{len(envolvidos)}">
       <input type="hidden" name="total_materiais" value="{len(materiais)}">
+      <input type="hidden" name="total_veiculos" value="{len(veiculos)}">
       <input type="hidden" name="reds" value="{e(reds) or ''}">
       <fieldset><legend>Vínculo investigativo (aplicado a todos os marcados)</legend>
         <div class="grade">
@@ -682,6 +763,7 @@ def pagina_importar_revisao(usuario, csrf, reds, envolvidos, historico=None, loc
       {bloco_ocorrencia}
       {blocos}
       {bloco_materiais}
+      {bloco_veiculos}
       <div class="acoes">
         <a class="botao fantasma" href="/importar">Cancelar</a>
         <button class="botao">Cadastrar os marcados</button>

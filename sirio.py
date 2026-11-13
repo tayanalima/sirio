@@ -13,6 +13,8 @@ para ficar mais fácil de localizar e alterar cada parte:
   sirio_pessoas.py       registros (cadastro de pessoas), fotos, mesclagem
   sirio_ocorrencias.py   ocorrências e testemunhas
   sirio_materiais.py     materiais apreendidos
+  sirio_veiculos.py      veículos importados de boletins de ocorrência
+  sirio_investigacoes.py organização e relatórios de investigações
   sirio_mapa.py          mapa geográfico
   sirio_vinculos.py      diagrama de vínculos
   sirio_importar.py      importação de Boletim de Ocorrência (PDF) e CSV
@@ -60,15 +62,22 @@ import threading
 import webbrowser
 import ssl
 
+from sirio_comunicacoes import atender as atender_comunicacoes
 from sirio_core import *  # noqa: F401,F403
 from sirio_core import _num_ou_none  # nomes com "_" não vêm no import *
 from sirio_usuarios import *  # noqa: F401,F403
 from sirio_pessoas import *  # noqa: F401,F403
 from sirio_ocorrencias import *  # noqa: F401,F403
 from sirio_materiais import *  # noqa: F401,F403
+from sirio_veiculos import *  # noqa: F401,F403
+from sirio_investigacoes import *  # noqa: F401,F403
+# Funções internas do módulo não são incluídas pelo import *. As rotas abaixo
+# precisam delas para montar a edição, a ficha e o relatório da investigação.
+from sirio_investigacoes import _referencias
 from sirio_mapa import *  # noqa: F401,F403
 from sirio_vinculos import *  # noqa: F401,F403
 from sirio_importar import *  # noqa: F401,F403
+from sirio_importar_sids import *  # noqa: F401,F403
 from sirio_config import *  # noqa: F401,F403
 from sirio_vd_core import *  # noqa: F401,F403
 from sirio_vd_casos import *  # noqa: F401,F403
@@ -91,6 +100,11 @@ class Servidor(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(dados)))
+        # O sistema muda frequentemente e exibe dados sensíveis: não manter
+        # páginas antigas no navegador evita que uma tela desatualizada oculte
+        # novas funções (e reduz a exposição no cache local).
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         for c in (cookies or []):
@@ -221,14 +235,34 @@ class Servidor(BaseHTTPRequestHandler):
             return
         usuario, csrf = sessao
 
+        if atender_comunicacoes(self, "GET", usuario, csrf):
+            return
+
         if caminho == "/":
-            return self.responde_html(pagina_lista(usuario, self.query()))
+            return self.responde_html(pagina_lista(usuario, self.query(), csrf))
 
         if caminho == "/vinculos":
             consulta = self.query()
             return self.responde_html(pagina_vinculos(
                 usuario, csrf, consulta.get("org", ""), consulta.get("modo", "organizacoes"),
-                consulta.get("autor", "")))
+                consulta.get("autor", ""), consulta.get("placa", "")))
+
+        if caminho == "/vinculos/exportar.xlsx":
+            modo = self.query().get("modo", "organizacoes")
+            if modo not in ("organizacoes", "cpf", "boletins", "vitimas_por_autor"):
+                modo = "organizacoes"
+            cabecalhos, linhas = dados_exportacao_vinculos(modo)
+            dados = gera_xlsx_vinculos(cabecalhos, linhas)
+            con = conexao()
+            audita(con, usuario["id"], "EXPORT", None, "diagrama_vinculos", None,
+                   f"Dados do diagrama exportados em XLSX ({modo})")
+            con.commit(); con.close()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition", f'attachment; filename="diagrama_vinculos_{modo}.xlsx"')
+            self.send_header("Content-Length", str(len(dados)))
+            self.end_headers(); self.wfile.write(dados)
+            return
 
         if caminho == "/pessoas/nova":
             if usuario["perfil"] not in ("admin", "analista"):
@@ -364,6 +398,117 @@ class Servidor(BaseHTTPRequestHandler):
                 return self.redireciona("/materiais")
             return self.responde_html(pagina_material_form(usuario, csrf))
 
+        if caminho == "/veiculos":
+            return self.responde_html(pagina_veiculos_lista(usuario, csrf, self.query()))
+
+        if caminho == "/veiculos/novo":
+            if usuario["perfil"] not in ("admin", "analista"):
+                return self.redireciona("/veiculos")
+            return self.responde_html(pagina_veiculo_form(usuario, csrf))
+
+        m = re.fullmatch(r"/veiculos/(\d+)/editar", caminho)
+        if m:
+            if usuario["perfil"] not in ("admin", "analista"):
+                return self.redireciona("/veiculos")
+            con = conexao()
+            veiculo = con.execute("SELECT * FROM veiculos WHERE id=?", (int(m.group(1)),)).fetchone()
+            con.close()
+            if not veiculo:
+                return self.responde_html(pagina("Não encontrado", '<p class="erro">Veículo não encontrado.</p>', usuario), 404)
+            return self.responde_html(pagina_veiculo_form(usuario, csrf, dict(veiculo), int(m.group(1))))
+
+        m = re.fullmatch(r"/veiculos/(\d+)/diagrama", caminho)
+        if m:
+            resultado = pagina_diagrama_placa(usuario, int(m.group(1)))
+            if resultado is None:
+                return self.responde_html(pagina("Não encontrado", '<p class="erro">Veículo não encontrado.</p>', usuario), 404)
+            return self.responde_html(resultado)
+
+        m = re.fullmatch(r"/veiculos/(\d+)", caminho)
+        if m:
+            con = conexao()
+            veiculo = con.execute(
+                "SELECT v.*, p.nome pessoa_nome, o.numero_bo, o.tipo_crime ocorrencia_tipo, b.reds boletim_reds "
+                "FROM veiculos v LEFT JOIN pessoas p ON p.id=v.pessoa_id "
+                "LEFT JOIN ocorrencias o ON o.id=v.ocorrencia_id LEFT JOIN boletins b ON b.id=v.boletim_id WHERE v.id=?",
+                (int(m.group(1)),)).fetchone()
+            con.close()
+            if not veiculo:
+                return self.responde_html(pagina("Não encontrado", '<p class="erro">Veículo não encontrado.</p>', usuario), 404)
+            return self.responde_html(pagina_veiculo_detalhe(usuario, csrf, veiculo))
+
+        if caminho == "/investigacoes":
+            return self.responde_html(pagina_investigacoes_lista(usuario, csrf, self.query()))
+
+        if caminho == "/investigacoes/nova":
+            if usuario["perfil"] not in ("admin", "analista"):
+                return self.redireciona("/investigacoes")
+            return self.responde_html(pagina_investigacao_form(usuario, csrf))
+
+        m = re.fullmatch(r"/investigacoes/(\d+)/editar", caminho)
+        if m:
+            if usuario["perfil"] not in ("admin", "analista"):
+                return self.redireciona("/investigacoes")
+            iid = int(m.group(1))
+            con = conexao()
+            item = con.execute("SELECT * FROM investigacoes WHERE id=?", (iid,)).fetchone()
+            con.close()
+            if not item:
+                return self.responde_html(pagina("Não encontrada", '<p class="erro">Investigação não encontrada.</p>', usuario), 404)
+            dados = dict(item)
+            dados["referencias"] = [f"{r['tipo']}:{r['registro']['id']}" for r in _referencias(iid)]
+            return self.responde_html(pagina_investigacao_form(usuario, csrf, dados, iid))
+
+        m = re.fullmatch(r"/investigacoes/(\d+)/comunicacao\.docx", caminho)
+        if m:
+            iid = int(m.group(1))
+            con = conexao()
+            item = con.execute("SELECT * FROM investigacoes WHERE id=?", (iid,)).fetchone()
+            if item:
+                audita(con, usuario["id"], "EXPORT", None, "comunicacao_investigacao", None,
+                       f"Comunicação de Serviço da investigação #{iid}")
+                con.commit()
+            con.close()
+            if not item:
+                return self.responde_html(pagina("Não encontrada", '<p class="erro">Investigação não encontrada.</p>', usuario), 404)
+            try:
+                dados = gera_comunicacao_investigacao_docx(item, usuario)
+            except FileNotFoundError:
+                return self.responde_html(pagina("Modelo ausente",
+                    '<p class="erro">O modelo timbrado não foi encontrado na pasta "modelos".</p>', usuario), 500)
+            nome = nome_arquivo_comunicacao_investigacao(item)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument"
+                                             ".wordprocessingml.document")
+            self.send_header("Content-Disposition", f'attachment; filename="{nome}"')
+            self.send_header("Content-Length", str(len(dados)))
+            self.end_headers()
+            self.wfile.write(dados)
+            return
+
+        m = re.fullmatch(r"/investigacoes/(\d+)/relatorio", caminho)
+        if m:
+            iid = int(m.group(1))
+            con = conexao()
+            item = con.execute("SELECT * FROM investigacoes WHERE id=?", (iid,)).fetchone()
+            if item:
+                audita(con, usuario["id"], "EXPORT", None, "relatorio_investigacao", None, f"Relatório da investigação #{iid} emitido")
+                con.commit()
+            con.close()
+            if not item:
+                return self.responde_html(pagina("Não encontrada", '<p class="erro">Investigação não encontrada.</p>', usuario), 404)
+            return self.responde_html(pagina_relatorio_investigacao(usuario, item, _referencias(iid)))
+
+        m = re.fullmatch(r"/investigacoes/(\d+)", caminho)
+        if m:
+            iid = int(m.group(1))
+            con = conexao()
+            item = con.execute("SELECT * FROM investigacoes WHERE id=?", (iid,)).fetchone()
+            con.close()
+            if not item:
+                return self.responde_html(pagina("Não encontrada", '<p class="erro">Investigação não encontrada.</p>', usuario), 404)
+            return self.responde_html(pagina_investigacao_detalhe(usuario, csrf, item, _referencias(iid)))
+
         if caminho == "/mapa":
             return self.responde_html(pagina_mapa(usuario))
 
@@ -381,6 +526,11 @@ class Servidor(BaseHTTPRequestHandler):
             if usuario["perfil"] not in ("admin", "analista") or not PDF_DISPONIVEL:
                 return self.redireciona("/")
             return self.responde_html(pagina_importar_upload(usuario, csrf))
+
+        if caminho == "/importar-sids":
+            if usuario["perfil"] not in ("admin", "analista"):
+                return self.redireciona("/")
+            return self.responde_html(pagina_importar_sids(usuario, csrf))
 
         m = re.fullmatch(r"/fotos/([0-9a-f]{32}\.(?:jpg|jpeg|png|gif|webp))", caminho)
         if m:
@@ -830,6 +980,50 @@ class Servidor(BaseHTTPRequestHandler):
                 tipos_violencia, marcadores, nomes, reincidencia, avaliacoes, medidas,
                 diligencias, encaminhamentos, acompanhamentos))
 
+        # --- Investigações -------------------------------------------------
+        if caminho == "/investigacoes/nova" and pode_editar:
+            referencias = self.form_multi("referencias")
+            d["referencias"] = referencias
+            erro = valida_investigacao(d)
+            if erro:
+                return self.responde_html(pagina_investigacao_form(usuario, csrf, d, erro=erro))
+            valores = valores_investigacao(d)
+            con = conexao()
+            colunas = ", ".join(valores.keys())
+            cur = con.execute(
+                f"INSERT INTO investigacoes ({colunas}, criado_em, criado_por, atualizado_em, atualizado_por) "
+                f"VALUES ({', '.join('?' for _ in valores)}, ?, ?, ?, ?)",
+                list(valores.values()) + [agora(), usuario["id"], agora(), usuario["id"]])
+            salva_referencias_investigacao(con, cur.lastrowid, referencias, usuario["id"])
+            audita(con, usuario["id"], "CREATE", None, "investigacao", None, valores["titulo"])
+            con.commit()
+            iid = cur.lastrowid
+            con.close()
+            return self.redireciona(f"/investigacoes/{iid}")
+
+        m = re.fullmatch(r"/investigacoes/(\d+)/editar", caminho)
+        if m and pode_editar:
+            iid = int(m.group(1))
+            referencias = self.form_multi("referencias")
+            d["referencias"] = referencias
+            erro = valida_investigacao(d)
+            if erro:
+                return self.responde_html(pagina_investigacao_form(usuario, csrf, d, iid, erro))
+            valores = valores_investigacao(d)
+            con = conexao()
+            existe = con.execute("SELECT id FROM investigacoes WHERE id=?", (iid,)).fetchone()
+            if not existe:
+                con.close()
+                return self.redireciona("/investigacoes")
+            sets = ", ".join(f"{c}=?" for c in valores)
+            con.execute(f"UPDATE investigacoes SET {sets}, atualizado_em=?, atualizado_por=? WHERE id=?",
+                        list(valores.values()) + [agora(), usuario["id"], iid])
+            salva_referencias_investigacao(con, iid, referencias, usuario["id"])
+            audita(con, usuario["id"], "UPDATE", None, "investigacao", None, valores["titulo"])
+            con.commit()
+            con.close()
+            return self.redireciona(f"/investigacoes/{iid}")
+
         # --- Verificação de denúncias -------------------------------------
         if caminho == "/verificacoes":
             return self.responde_html(pagina_verificacoes_lista(usuario, csrf, self.query()))
@@ -1037,6 +1231,9 @@ class Servidor(BaseHTTPRequestHandler):
         if not sessao:
             return
         usuario, csrf = sessao
+
+        if atender_comunicacoes(self, "POST", usuario, csrf):
+            return
         pode_editar = usuario["perfil"] in ("admin", "analista")
 
         if caminho == "/minha-senha":
@@ -1226,7 +1423,39 @@ class Servidor(BaseHTTPRequestHandler):
             return self.responde_html(pagina_importar_revisao(
                 usuario, csrf, resultado["reds"], resultado["envolvidos"],
                 resultado["historico"], resultado["local_fato"], resultado["materiais"],
-                resultado.get("diagnostico")))
+                resultado.get("diagnostico"), resultado.get("veiculos")))
+
+        # Importação da exportação XLSX do Armazém SIDS.
+        if caminho == "/importar-sids":
+            if not pode_editar:
+                return self.redireciona("/")
+            campos, arquivos = self.form_multipart()
+            if campos is None or not self.csrf_ok(campos, csrf):
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "Falha no envio ou sessão expirada."))
+            if not arquivos:
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "Selecione a planilha XLSX exportada pelo Armazém SIDS."))
+            nome, conteudo = arquivos[0]
+            if not nome.lower().endswith(".xlsx") or not conteudo.startswith(b"PK"):
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "Envie um arquivo XLSX válido."))
+            try:
+                registros = ler_planilha_sids(conteudo)
+            except (ValueError, zipfile.BadZipFile, ET.ParseError):
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "Não consegui ler esta planilha no padrão do Armazém SIDS."))
+            token = secrets.token_urlsafe(24)
+            IMPORTACOES_SIDS_PENDENTES[token] = (time.time(), registros)
+            return self.responde_html(pagina_confirmar_sids(usuario, csrf, token, registros))
+
+        if caminho == "/importar-sids/confirmar" and pode_editar:
+            d = self.form()
+            if not self.csrf_ok(d, csrf):
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "Sessão expirada. Envie a planilha novamente."))
+            token = d.get("token") or ""
+            pendente = IMPORTACOES_SIDS_PENDENTES.pop(token, None)
+            if not pendente or time.time() - pendente[0] > 1800:
+                return self.responde_html(pagina_importar_sids(usuario, csrf, "A conferência expirou. Envie a planilha novamente."))
+            pessoas, ocorrencias = importa_sids(pendente[1], usuario["id"])
+            return self.redireciona("/ocorrencias?ok=" + urllib.parse.quote(
+                f"Importação SIDS concluída: {ocorrencias} ocorrência(s) e {pessoas} pessoa(s) nova(s)."))
 
         # Fotos opcionais da averiguação. A verificação já precisa existir para
         # que cada imagem tenha um registro pai e possa ser excluída com segurança.
@@ -1295,6 +1524,83 @@ class Servidor(BaseHTTPRequestHandler):
                 '<p>Volte, recarregue a página e refaça a operação.</p>'
                 '<div class="acoes"><a class="botao" href="/">Voltar ao início</a></div>',
                 usuario), 400)
+
+        if caminho == "/veiculos/novo" and pode_editar:
+            erro = valida_veiculo(d)
+            if erro:
+                return self.responde_html(pagina_veiculo_form(usuario, csrf, d, erro=erro))
+            valores = valores_veiculo(d)
+            con = conexao()
+            campos = list(valores) + ["criado_em", "criado_por"]
+            resultado = con.execute(
+                f"INSERT INTO veiculos ({','.join(campos)}) VALUES ({','.join('?' for _ in campos)})",
+                [valores[c] for c in valores] + [agora(), usuario["id"]])
+            vid = resultado.lastrowid
+            audita(con, usuario["id"], "CREATE", valores["pessoa_id"], "veiculo", None,
+                   f"Veículo cadastrado: {valores['placa'] or valores['marca'] or 'sem identificação'}")
+            con.commit(); con.close()
+            return self.redireciona(f"/veiculos/{vid}")
+
+        m = re.fullmatch(r"/veiculos/(\d+)/editar", caminho)
+        if m and pode_editar:
+            vid = int(m.group(1))
+            erro = valida_veiculo(d)
+            if erro:
+                return self.responde_html(pagina_veiculo_form(usuario, csrf, d, vid, erro))
+            valores = valores_veiculo(d)
+            con = conexao()
+            anterior = con.execute("SELECT id FROM veiculos WHERE id=?", (vid,)).fetchone()
+            if not anterior:
+                con.close()
+                return self.responde_html(pagina("Não encontrado", '<p class="erro">Veículo não encontrado.</p>', usuario), 404)
+            con.execute("UPDATE veiculos SET " + ",".join(f"{c}=?" for c in valores) + " WHERE id=?",
+                        [valores[c] for c in valores] + [vid])
+            audita(con, usuario["id"], "UPDATE", valores["pessoa_id"], "veiculo", None,
+                   f"Veículo #{vid} atualizado")
+            con.commit(); con.close()
+            return self.redireciona(f"/veiculos/{vid}")
+
+        # --- Investigações -------------------------------------------------
+        # Esta rota precisa ficar em do_POST: o formulário de investigação
+        # envia os campos para cá. Antes ela estava na rotina GET e, por isso,
+        # os dados preenchidos nunca chegavam ao INSERT/UPDATE.
+        if caminho == "/investigacoes/nova" and pode_editar:
+            referencias = self.form_multi("referencias")
+            d["referencias"] = referencias
+            erro = valida_investigacao(d)
+            if erro:
+                return self.responde_html(pagina_investigacao_form(usuario, csrf, d, erro=erro))
+            valores = valores_investigacao(d)
+            con = conexao()
+            colunas = ", ".join(valores.keys())
+            cur = con.execute(
+                f"INSERT INTO investigacoes ({colunas}, criado_em, criado_por, atualizado_em, atualizado_por) "
+                f"VALUES ({', '.join('?' for _ in valores)}, ?, ?, ?, ?)",
+                list(valores.values()) + [agora(), usuario["id"], agora(), usuario["id"]])
+            salva_referencias_investigacao(con, cur.lastrowid, referencias, usuario["id"])
+            audita(con, usuario["id"], "CREATE", None, "investigacao", None, valores["titulo"])
+            con.commit(); iid = cur.lastrowid; con.close()
+            return self.redireciona(f"/investigacoes/{iid}")
+
+        m = re.fullmatch(r"/investigacoes/(\d+)/editar", caminho)
+        if m and pode_editar:
+            iid = int(m.group(1))
+            referencias = self.form_multi("referencias")
+            d["referencias"] = referencias
+            erro = valida_investigacao(d)
+            if erro:
+                return self.responde_html(pagina_investigacao_form(usuario, csrf, d, iid, erro))
+            valores = valores_investigacao(d)
+            con = conexao()
+            if not con.execute("SELECT id FROM investigacoes WHERE id=?", (iid,)).fetchone():
+                con.close(); return self.redireciona("/investigacoes")
+            sets = ", ".join(f"{c}=?" for c in valores)
+            con.execute(f"UPDATE investigacoes SET {sets}, atualizado_em=?, atualizado_por=? WHERE id=?",
+                        list(valores.values()) + [agora(), usuario["id"], iid])
+            salva_referencias_investigacao(con, iid, referencias, usuario["id"])
+            audita(con, usuario["id"], "UPDATE", None, "investigacao", None, valores["titulo"])
+            con.commit(); con.close()
+            return self.redireciona(f"/investigacoes/{iid}")
 
         if caminho == "/pessoas/nova" and pode_editar:
             if not d.get("nome"):
@@ -1392,6 +1698,32 @@ class Servidor(BaseHTTPRequestHandler):
                         pass
             con.close()
             return self.redireciona("/")
+
+        if caminho == "/pessoas/excluir-em-massa" and usuario["perfil"] == "admin":
+            # Apenas IDs numéricos recebidos como checkboxes são aceitos. Cada
+            # exclusão reaproveita a mesma cascata segura da exclusão individual.
+            pessoa_ids = sorted({int(valor) for valor in self.form_multi("pessoa_ids")
+                                 if valor.isdigit() and int(valor) > 0})
+            if not pessoa_ids:
+                return self.redireciona("/")
+            con = conexao()
+            marcas = ",".join("?" for _ in pessoa_ids)
+            pessoas = con.execute(
+                f"SELECT id, nome FROM pessoas WHERE id IN ({marcas})", pessoa_ids).fetchall()
+            arquivos = []
+            for pessoa in pessoas:
+                audita(con, usuario["id"], "DELETE", pessoa["id"], "pessoa", pessoa["nome"], None)
+                arquivos.extend(exclui_pessoa_em_cascata(con, pessoa["id"]))
+            con.commit()
+            # Os arquivos físicos só são removidos depois que a transação do
+            # banco foi concluída, mantendo fotos e registros consistentes.
+            for arquivo in arquivos:
+                try:
+                    os.remove(os.path.join(PASTA_FOTOS, arquivo))
+                except OSError:
+                    pass
+            con.close()
+            return self.redireciona(f"/?excluidos={len(pessoas)}")
 
         m = re.fullmatch(r"/pessoas/(\d+)/biqueiras", caminho)
         if m and pode_editar:
@@ -1646,6 +1978,10 @@ class Servidor(BaseHTTPRequestHandler):
                 total_materiais = int(d.get("total_materiais", "0"))
             except ValueError:
                 total_materiais = 0
+            try:
+                total_veiculos = int(d.get("total_veiculos", "0"))
+            except ValueError:
+                total_veiculos = 0
             reds = (d.get("reds") or "").strip()
             org = d.get("org_comum") or None
             cargo = d.get("cargo_comum") or None
@@ -1763,7 +2099,8 @@ class Servidor(BaseHTTPRequestHandler):
                        f"Importada do BO/REDS {reds}" if reds else "Importada de BO")
                 ocorrencia_id = cur_oc.lastrowid
 
-            if historico or reds:
+            boletim_id = None
+            if historico or reds or total_veiculos:
                 cur_bol = con.execute(
                     "INSERT INTO boletins (reds, data_fato, historico, ocorrencia_id, criado_em, criado_por)"
                     " VALUES (?,?,?,?,?,?)",
@@ -1846,6 +2183,30 @@ class Servidor(BaseHTTPRequestHandler):
                 audita(con, usuario["id"], "CREATE", pessoa_id_mat, "material", None,
                        f"Importado do BO/REDS {reds}" if reds else "Importado de BO")
                 materiais_criados += 1
+
+            for j in range(total_veiculos):
+                if d.get(f"vei_incluir_{j}") != "1":
+                    continue
+                placa = re.sub(r"[^A-Za-z0-9]", "", (d.get(f"vei_placa_{j}") or "").upper()) or None
+                marca = d.get(f"vei_marca_{j}") or None
+                modelo = d.get(f"vei_modelo_{j}") or None
+                tipo = d.get(f"vei_tipo_{j}") or None
+                if not any((placa, marca, modelo, tipo)):
+                    continue
+                envolv_nr = d.get(f"vei_envolv_{j}") or ""
+                idx_pessoa = int(envolv_nr) - 1 if envolv_nr.isdigit() else None
+                pessoa_id_veiculo = posicao_para_pessoa_id.get(idx_pessoa) if idx_pessoa is not None else None
+                con.execute(
+                    "INSERT INTO veiculos (placa, placa_normalizada, marca, modelo, tipo, cor, ano_fabricacao, ano_modelo, "
+                    "municipio_placa, uf_placa, situacao, observacoes, boletim_id, ocorrencia_id, pessoa_id, criado_em, criado_por) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (placa, placa, marca, modelo, tipo, d.get(f"vei_cor_{j}") or None,
+                     d.get(f"vei_ano_fabricacao_{j}") or None, d.get(f"vei_ano_modelo_{j}") or None,
+                     d.get(f"vei_municipio_placa_{j}") or None, d.get(f"vei_uf_placa_{j}") or None,
+                     d.get(f"vei_situacao_{j}") or None, d.get(f"vei_observacoes_{j}") or None,
+                     boletim_id, ocorrencia_id, pessoa_id_veiculo, agora(), usuario["id"]))
+                audita(con, usuario["id"], "CREATE", pessoa_id_veiculo, "veiculo", None,
+                       f"Importado do BO/REDS {reds}" if reds else "Importado de BO")
 
             con.commit()
             con.close()
@@ -2816,6 +3177,7 @@ def principal(modo_rede=False):
     inicia_banco()
     inicia_banco_vd()
     inicia_banco_verificacoes()
+    inicia_banco_investigacoes()
     endereco = "0.0.0.0" if modo_rede else "127.0.0.1"
     servidor = ThreadingHTTPServer((endereco, PORTA), Servidor)
     certificado = os.path.join(PASTA, "certificados", "sirio-certificado.pem")

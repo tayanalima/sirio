@@ -1,0 +1,47 @@
+MÓDULO DE COMUNICAÇÃO DE SERVIÇO — SIRIO
+
+INSTALAÇÃO
+1. Feche o SIRIO.
+2. Extraia o ZIP. Copie os 3 arquivos .py/.bat desta pasta para a pasta
+   completa do seu SIRIO, onde estão sirio.py e sirio_core.py.
+   Mantenha os nomes originais sirio.py e sirio_core.py (sem "(1)").
+3. Dê dois cliques em Instalar Modulo.bat. Na primeira instalação,
+   é necessária internet para instalar python-docx e Pillow.
+4. Abra o SIRIO pelo seu Iniciar SIRIO.bat e entre normalmente.
+5. No menu, clique em Comunicações de serviço > Nova comunicação.
+
+USO
+- Preencha apenas os campos que desejar. Campos vazios não saem no documento.
+- Adicione blocos de texto, com ou sem título de capítulo.
+- Insira fotos PNG/JPEG entre os blocos. Legendas e títulos são opcionais.
+- Use as setas para mudar a ordem; Remover retira um bloco do rascunho.
+- Clique em Salvar comunicação antes de sair. Não há salvamento automático.
+- Reabra os rascunhos na lista e clique em Editar para continuar.
+- Baixar Word gera um DOCX editável com as fotos incorporadas.
+- Imprimir / salvar em PDF abre a impressão do navegador. Escolha Salvar
+  como PDF e desative cabeçalhos e rodapés do navegador, se necessário.
+
+ARMAZENAMENTO E ACESSO
+- Documentos e fotos ficam juntos na tabela comunicacoes_livres do sirio.db.
+  O backup desse banco inclui as comunicações e as fotos deste módulo.
+- Administradores e analistas criam e editam; demais usuários autenticados
+  podem consultar e exportar, conforme a política compartilhada do SIRIO.
+- A gravação é auditada. Se outra janela salvar primeiro, a versão antiga
+  não sobrescreve a nova. Copie seu texto antes de reabrir nesse caso.
+- Limites: 100 blocos, 5 MB por foto, 24 megapixels e 24 MB por envio.
+- Para adaptar a outra unidade, lembre-se de que os documentos existentes
+  podem conter dados da unidade anterior; use o procedimento de distribuição
+  já adotado pelo seu sistema e confira o conteúdo do banco distribuído.
+
+BACKUP E REVERSÃO
+O instalador guarda sirio.py e sirio_core.py anteriores numa pasta
+backup_antes_comunicacoes_*. Para reverter, feche o SIRIO e restaure esses
+arquivos. A tabela criada no banco é mantida e não altera tabelas existentes.
+O instalador pode ser executado novamente sem duplicar menu ou rotas.
+
+VALIDAÇÃO
+Integração verificada nos dois arquivos enviados, incluindo repetição do
+instalador. Validados salvamento, consulta, reabertura, controle de versão,
+permissões, CSRF e exportação Word com texto e foto em ambiente de teste.
+A execução completa com todos os módulos do SIRIO depende da pasta original,
+pois os demais módulos importados não foram anexados.

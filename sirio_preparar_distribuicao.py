@@ -16,12 +16,14 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 
 
 PASTA = Path(__file__).resolve().parent
 
 # Pastas que jamais entram no pacote.
-PASTAS_PROIBIDAS = {"fotos", "backups", "certificados", "__pycache__", ".git"}
+PASTAS_PROIBIDAS = {"fotos", "backups", "certificados", "__pycache__", ".git",
+                    "pacotes_github", "pacotes_distribuicao"}
 
 # Arquivos que jamais entram no pacote (comparação sem diferenciar maiúsculas).
 ARQUIVOS_PROIBIDOS = {"sirio.db", "sirio.db-journal", "sirio.db-wal", "sirio.db-shm"}
@@ -41,6 +43,10 @@ def proibido(caminho: Path) -> str:
     """Devolve o motivo da exclusão, ou "" se o item pode ser copiado."""
     nome = caminho.name.lower()
     sufixo = caminho.suffix.lower()
+    if nome.startswith((".tmp", ".bo_tmp_", ".sirio_")) or nome == "registro_de_acesso.txt":
+        return "arquivo temporário ou registro local"
+    if nome.startswith("sirio_para_") and sufixo == ".zip":
+        return "pacote anterior"
     if nome in ARQUIVOS_PROIBIDOS or sufixo in SUFIXOS_BANCO:
         return "banco de dados com registros reais"
     # sirio.db-journal, _t1.db-journal, copia.db-wal e afins
@@ -56,8 +62,11 @@ def proibido(caminho: Path) -> str:
 def copia_limpa(origem: Path, destino: Path, excluidos: list) -> int:
     copiados = 0
     for item in sorted(origem.iterdir()):
+        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+            excluidos.append((item.name, "atalho para conteúdo externo"))
+            continue
         if item.is_dir():
-            if item.name in PASTAS_PROIBIDAS:
+            if item.name.lower() in PASTAS_PROIBIDAS or proibido(item):
                 excluidos.append((item.name + "\\", "pasta com dados locais desta unidade"))
                 continue
             sub = destino / item.name
@@ -77,20 +86,19 @@ def confere(destino: Path) -> list:
     """Última verificação: procura qualquer coisa sensível que tenha escapado."""
     problemas = []
     for item in destino.rglob("*"):
-        if item.is_dir():
-            continue
-        if item.name.lower() in ARQUIVOS_PROIBIDOS or item.suffix.lower() in SUFIXOS_PROIBIDOS:
+        if proibido(item) or set(p.lower() for p in item.relative_to(destino).parts) & PASTAS_PROIBIDAS:
             problemas.append(str(item.relative_to(destino)))
     return problemas
 
 
 def main():
-    selo = datetime.now().strftime("%Y-%m-%d")
+    selo = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
     # O pacote é montado numa pasta temporária e entregue como um único .zip.
     # Deixar uma pasta solta ao lado da instalação em uso é pedir para alguém
     # clicar no atalho errado: os dois conjuntos de .bat têm nomes idênticos.
-    destino = PASTA.parent / f".sirio_pacote_temporario_{selo}"
-    zip_final = PASTA.parent / f"SIRIO_para_distribuir_{selo}.zip"
+    pasta_pacotes = PASTA / "Pacotes_Distribuicao"
+    pasta_pacotes.mkdir(exist_ok=True)
+    zip_final = pasta_pacotes / f"SIRIO_para_distribuir_{selo}.zip"
 
     print("=" * 62)
     print(" SIRIO - Preparar pacote para outra unidade")
@@ -99,15 +107,12 @@ def main():
     print(f" Pacote : {zip_final}")
     print()
 
-    if zip_final.exists():
-        resposta = input(" O pacote de hoje já existe. Refazer? (S/N): ").strip().lower()
-        if resposta != "s":
-            print("\n Nada foi alterado.")
-            return 1
-        zip_final.unlink()
-    if destino.exists():
-        shutil.rmtree(destino)
-    destino.mkdir(parents=True)
+    with tempfile.TemporaryDirectory(prefix=".sirio_pacote_", dir=pasta_pacotes) as temporario:
+        destino = Path(temporario)
+        return gerar_pacote(destino, zip_final)
+
+
+def gerar_pacote(destino: Path, zip_final: Path):
 
     excluidos = []
     copiados = copia_limpa(PASTA, destino, excluidos)
@@ -127,10 +132,10 @@ def main():
         print(" !! NÃO distribua este pacote. Avise o responsável técnico.")
         return 1
 
-    print(" Verificação final: nenhum dado sensível no pacote. OK.")
+    print(" Verificação final: nenhum banco ou item local bloqueado no pacote. OK.")
 
-    shutil.make_archive(str(zip_final.with_suffix("")), "zip", root_dir=destino)
-    shutil.rmtree(destino)
+    arquivo = shutil.make_archive(str(destino.parent / (destino.name + "_arquivo")), "zip", root_dir=destino)
+    Path(arquivo).replace(zip_final)
     print()
     print(f" Pacote pronto: {zip_final.name}")
     print(f" Local: {zip_final.parent}")
@@ -159,4 +164,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except OSError as erro:
+        print(f"\n Não foi possível gerar o pacote: {erro}")
+        sys.exit(1)

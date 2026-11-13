@@ -168,6 +168,7 @@ def passos(doc, itens):
 MANUAL_METADATA = [
     ("Versão", "4.0"),
     ("Autora", "Tayana Borges de Lima"),
+    ("Contato", "tayanablima@gmail.com | (31) 99968-6006"),
     ("Licença", "MIT - consulte o arquivo LICENSE"),
     ("Requisito", "Python 3.10 ou mais novo"),
     ("Atualizado em", date.today().strftime("%d/%m/%Y")),
@@ -264,8 +265,8 @@ SECOES_MANUAL = [
     ], False),
 
     ("12. Suporte e observações",
-     "Para suporte, dúvidas ou adaptações, procure a autora do sistema. "
-     "Este manual complementa o arquivo LEIA-ME.txt "
+     "Para suporte, dúvidas ou adaptações, entre em contato com Tayana Borges de Lima: "
+     "tayanablima@gmail.com | (31) 99968-6006. Este manual complementa o arquivo LEIA-ME.txt "
      "e o Manual de instalação e acesso em rede, ambos fornecidos com o sistema.", [], False),
 ]
 
@@ -292,6 +293,7 @@ def declaracao_ia():
     metadata(doc, [
         ("Sistema", "SIRIO - versão 4.0"),
         ("Responsável", "Tayana Borges de Lima"),
+        ("Contato", "tayanablima@gmail.com | (31) 99968-6006"),
         ("Data", date.today().strftime("%d/%m/%Y")),
     ])
     paragrafo(doc, "Esta declaração informa, de forma transparente, o uso de ferramentas de inteligência artificial generativa como apoio durante o desenvolvimento do SIRIO.")
@@ -403,7 +405,7 @@ def gerar_pdfs():
     pdf_documento("Declaracao_de_Uso_de_IA_SIRIO_4.0.pdf", "Declaração de uso de IA",
         "Transparência sobre ferramentas de apoio ao desenvolvimento do SIRIO 4.0", [
             ("Sistema", "SIRIO - versão 4.0"), ("Responsável", "Tayana Borges de Lima"),
-            ("Data", hoje),
+            ("Contato", "tayanablima@gmail.com | (31) 99968-6006"), ("Data", hoje),
         ], [
             ("1. Ferramentas utilizadas", None, ["ChatGPT, da OpenAI.", "Claude, da Anthropic."], False),
             ("2. Finalidade do uso", "As ferramentas foram utilizadas como apoio à elaboração, análise e revisão de código, sugestões de estrutura, documentação, testes e melhoria de textos. O uso de IA não substituiu a análise, as decisões técnicas, a validação ou a responsabilidade da autora.", [], False),

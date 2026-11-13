@@ -182,6 +182,7 @@ CAMPOS_PESSOA = [
     ("fonte_informacao", "Fonte da informação"),
     ("grau_confiabilidade", "Grau de confiabilidade"),
     ("observacoes", "Observações adicionais"),
+    ("resumo_investigativo", "Resumo de informações localizadas"),
     ("endereco", "Último endereço conhecido"),
     ("status", "Status do registro"),
 ]
@@ -390,8 +391,11 @@ MIGRACOES = [
     ("pessoas", "data_ultima_prisao", "TEXT"),
     ("pessoas", "crime_prisao", "TEXT"),
     ("pessoas", "data_atualizacao_status_prisional", "TEXT"),
+    ("pessoas", "resumo_investigativo", "TEXT"),
     ("ocorrencias", "cidade_fato", "TEXT"),
     ("ocorrencias", "bairro_fato", "TEXT"),
+    ("veiculos", "placa_normalizada", "TEXT"),
+    ("veiculos", "renavam", "TEXT"),
 ]
 
 
@@ -412,6 +416,46 @@ def aplica_migracoes(con, migracoes):
         cache[tabela].add(coluna)
         aplicadas.append(f"{tabela}.{coluna}")
     return aplicadas
+
+
+def recupera_veiculos_do_historico(con):
+    """Recupera placas dos BOs importados antes do módulo de veículos existir.
+
+    Os PDFs antigos deixaram o texto do histórico salvo, mas não a seção de
+    veículos estruturada. A recuperação exige contexto de veículo/placa e
+    ignora abreviaturas comuns que imitam uma placa (LEI 2848, relatório etc.).
+    Cada placa é ligada ao BO e à ocorrência de origem, sem atribuir uma pessoa
+    sem confirmação explícita.
+    """
+    padrao = re.compile(r"(?<![A-Z0-9])([A-Z]{3})[- ]?(\d[A-Z0-9]\d{2}|\d{4})(?![A-Z0-9])", re.I)
+    ignorar = {"LEI", "CIO", "ART", "CPF", "RGD", "RUA", "RIO"}
+    criados = 0
+    boletins = con.execute("SELECT id, historico, ocorrencia_id FROM boletins WHERE historico IS NOT NULL").fetchall()
+    for boletim in boletins:
+        texto = (boletim["historico"] or "").upper()
+        encontrados = set()
+        for achado in padrao.finditer(texto):
+            prefixo = achado.group(1).upper()
+            contexto = texto[max(0, achado.start() - 65): achado.end() + 35]
+            if prefixo in ignorar or not re.search(r"PLACA|VE[IÍ]CULO|MOTO|VIATURA", contexto):
+                continue
+            placa = prefixo + achado.group(2).upper()
+            if placa in encontrados:
+                continue
+            encontrados.add(placa)
+            existe = con.execute(
+                "SELECT 1 FROM veiculos WHERE boletim_id=? AND placa_normalizada=? LIMIT 1",
+                (boletim["id"], placa)).fetchone()
+            if existe:
+                continue
+            con.execute(
+                "INSERT INTO veiculos (placa, placa_normalizada, situacao, observacoes, boletim_id, ocorrencia_id, criado_em) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (placa, placa, "recuperado_do_historico",
+                 "Placa recuperada automaticamente do histórico do BO/REDS. Confira os demais dados no documento de origem.",
+                 boletim["id"], boletim["ocorrencia_id"], agora()))
+            criados += 1
+    return criados
 
 
 def inicia_banco():
@@ -436,7 +480,7 @@ def inicia_banco():
         preso TEXT, data_ultima_prisao TEXT, crime_prisao TEXT,
         data_atualizacao_status_prisional TEXT,
         fonte_informacao TEXT, grau_confiabilidade TEXT,
-        observacoes TEXT, endereco TEXT,
+        observacoes TEXT, resumo_investigativo TEXT, endereco TEXT,
         status TEXT NOT NULL DEFAULT 'em_verificacao',
         criado_em TEXT, criado_por INTEGER,
         atualizado_em TEXT, atualizado_por INTEGER
@@ -505,6 +549,16 @@ def inicia_banco():
         pessoa_id INTEGER NOT NULL,
         tipo_envolvimento TEXT
     );
+    CREATE TABLE IF NOT EXISTS veiculos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        placa TEXT, placa_normalizada TEXT, renavam TEXT,
+        marca TEXT, modelo TEXT, tipo TEXT, cor TEXT,
+        ano_fabricacao TEXT, ano_modelo TEXT,
+        municipio_placa TEXT, uf_placa TEXT, situacao TEXT,
+        observacoes TEXT,
+        boletim_id INTEGER, ocorrencia_id INTEGER, pessoa_id INTEGER,
+        criado_em TEXT, criado_por INTEGER
+    );
     CREATE TABLE IF NOT EXISTS opcoes_configuraveis (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         categoria TEXT NOT NULL,
@@ -534,6 +588,15 @@ def inicia_banco():
     # ganham as colunas que ainda não têm. Bancos já atualizados não sofrem
     # nenhuma alteração aqui — cada ALTER só roda se a coluna ainda não existe.
     aplica_migracoes(con, MIGRACOES)
+    # Índices e normalização tornam a pesquisa de placas rápida mesmo quando
+    # a base crescer, aceitando pesquisa com ou sem hífen/espaços.
+    con.execute("CREATE INDEX IF NOT EXISTS idx_veiculos_placa_normalizada ON veiculos(placa_normalizada)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_veiculos_pessoa ON veiculos(pessoa_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_veiculos_ocorrencia ON veiculos(ocorrencia_id)")
+    for veiculo in con.execute("SELECT id, placa FROM veiculos WHERE placa_normalizada IS NULL OR placa_normalizada='' ").fetchall():
+        placa_normalizada = re.sub(r"[^A-Z0-9]", "", (veiculo["placa"] or "").upper())
+        con.execute("UPDATE veiculos SET placa_normalizada=? WHERE id=?", (placa_normalizada or None, veiculo["id"]))
+    recupera_veiculos_do_historico(con)
     # Semente das listas configuráveis: só roda a primeira vez que cada
     # categoria aparece vazia (banco novo, ou upgrade de versão anterior que
     # ainda usava listas fixas no código). Depois disso, o administrador é
@@ -631,6 +694,7 @@ def valida_pessoa(d):
         valida_data(d.get("data_ultima_prisao"), "Data da última prisão", obrigatoria_passado=True),
         valida_inteiro(d.get("qtd_filhos"), "Quantidade de filhos", 0, 50),
         valida_tamanho(d.get("observacoes"), "Observações"),
+        valida_tamanho(d.get("resumo_investigativo"), "Resumo de informações localizadas", 30000),
         valida_tamanho(d.get("endereco"), "Endereço"),
     ]
     return next((m for m in verificacoes if m), "")
@@ -1082,6 +1146,17 @@ display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;flex-wr
 font-size:.72rem;color:var(--tinta2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:.4rem}
 .marca-dagua{position:fixed;top:38%;left:8%;font-size:4.2rem;font-weight:700;color:rgba(140,47,47,.13);
 transform:rotate(-28deg);z-index:0;pointer-events:none;letter-spacing:.1em}
+.relatorio-capa{min-height:72vh;display:flex;flex-direction:column;justify-content:center;text-align:center;border:2px solid var(--ouro);padding:3rem 2rem;margin-bottom:1.5rem;background:#fff}
+.relatorio-capa .sigla{font-size:1.7rem;font-weight:700;letter-spacing:.14em;color:var(--ouro)}
+.relatorio-capa h1{font-size:2rem;letter-spacing:.08em;text-transform:uppercase;margin:1.5rem 0 .6rem}
+.relatorio-capa .subtitulo{font-size:1.05rem;color:var(--tinta2);margin:0 auto 2.5rem;max-width:48rem}
+.relatorio-capa .metadados{border-top:1px solid var(--linha);padding-top:1.2rem;margin:0 auto;max-width:42rem;width:100%;text-align:left}
+.relatorio-sumario{background:#fff;border:1px solid var(--linha);padding:1.6rem 2rem;margin-bottom:1.5rem}
+.relatorio-sumario h2{font-size:1.15rem;color:var(--tinta);margin-bottom:1rem}.relatorio-sumario ol{list-style:none;padding:0;margin:0;counter-reset:sumario}
+.relatorio-sumario li{counter-increment:sumario;border-bottom:1px dotted var(--linha);padding:.45rem 0;display:flex;gap:.6rem}.relatorio-sumario li::before{content:counter(sumario);font-weight:700;color:var(--ouro)}
+.relatorio-sumario a{color:inherit;text-decoration:none}.relatorio-capitulo{background:#fff;border:1px solid var(--linha);padding:1.5rem 1.7rem;margin:1rem 0;break-inside:avoid}
+.relatorio-capitulo h2{font-size:1.05rem;color:var(--tinta);border-bottom:1px solid var(--ouro);padding-bottom:.55rem;margin-bottom:1rem}.relatorio-capitulo h2 .numero-capitulo{color:var(--ouro);margin-right:.45rem}
+.relatorio-capitulo p{line-height:1.65;text-align:justify;text-indent:2rem;margin:.6rem 0}.relatorio-capitulo .cartao{box-shadow:none;border-color:var(--linha);margin:.8rem 0}
 .timeline{list-style:none;padding:0;margin:0;border-left:2px solid var(--linha)}
 .timeline li{position:relative;padding:.15rem 0 1.1rem 1.3rem}
 .timeline li::before{content:"";position:absolute;left:-6px;top:.3rem;width:10px;height:10px;
@@ -1096,6 +1171,9 @@ border-radius:50%;background:var(--ouro);border:2px solid #fff;box-shadow:0 0 0 
   .cartao,table{border:1px solid #999;box-shadow:none;break-inside:avoid;background:#fff}
   a{color:inherit;text-decoration:none}
   .marca-dagua{display:block}
+  .cabecalho-relatorio-investigacao{display:none}
+  .relatorio-capa,.relatorio-sumario{break-after:page;margin:0;border-color:#777}
+  .relatorio-capitulo{border-color:#999}
 }
 """
 
@@ -1218,7 +1296,8 @@ def pagina(titulo, corpo, usuario=None):
     topo = ""
     if usuario is not None:
         links = ('<a href="/">Registros</a><a href="/vinculos">Diagrama de vínculos</a>'
-                 '<a href="/ocorrencias">Ocorrências</a><a href="/materiais">Materiais</a>'
+                 '<a href="/ocorrencias">Ocorrências</a><a href="/materiais">Materiais</a><a href="/veiculos">Veículos</a>'
+                 '<a href="/investigacoes">Investigações</a><a href="/comunicacoes">Comunicações de serviço</a>'
                  '<a href="/mapa">Mapa</a><a href="/vd">Violência Doméstica</a>'
                  '<a href="/verificacoes">Verificação de denúncias</a>')
         if usuario["perfil"] in ("admin", "analista"):

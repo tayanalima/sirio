@@ -5,6 +5,7 @@
 
 Software livre sob a Licença MIT.
 Copyright © 2026 Tayana Borges de Lima
+Contato: tayanablima@gmail.com | (31) 99968-6006
 
 USO RESTRITO. Este sistema trata dados sensíveis de investigação.
 Use somente em computador funcional, com autorização da chefia da
@@ -19,8 +20,7 @@ unidade, e NUNCA insira dados reais em testes ou demonstrações.
                       "Executar" se algum dia precisar rodar manualmente.
   sirio_core.py, sirio_pessoas.py, sirio_ocorrencias.py,
   sirio_materiais.py, sirio_mapa.py, sirio_vinculos.py,
-  sirio_importar.py, sirio_config.py, sirio_usuarios.py,
-  sirio_verificacoes.py
+  sirio_importar.py, sirio_config.py, sirio_usuarios.py
                       O restante do sistema, dividido por assunto para
                       ficar mais fácil de entender e ajustar cada parte.
                       TODOS esses arquivos .py precisam ficar juntos,
@@ -37,11 +37,6 @@ unidade, e NUNCA insira dados reais em testes ou demonstrações.
                       dados a partir de Boletins de Ocorrência.
   sirio.db            O banco de dados (aparece após o primeiro uso).
                       ESTE ARQUIVO É TUDO. Proteja-o e faça backup dele.
-  modelos\            Modelos de documento em Word usados pelo sistema.
-                      Contém comunicacao_servico.docx, o modelo da
-                      Comunicação de Serviço. O que vem no pacote é um
-                      modelo EM BRANCO: abra-o no Word e troque o
-                      cabeçalho pelo timbre da sua unidade antes de usar.
   LICENSE             Licença MIT de software livre do SIRIO.
   NOTICE.md           Autoria, contatos e aviso de copyright.
   certificados\       Certificado HTTPS e chave privada do servidor.
@@ -147,23 +142,6 @@ obrigatório.
 CARGO NA ORGANIZAÇÃO: o formulário tem o campo "Cargo / função
 na organização" (seção 3). Ele aparece na listagem, no registro
 e no diagrama de vínculos.
-
-BUSCA: o campo de busca varre o cadastro inteiro — nome, alcunha,
-CPF, RG, nome da mãe e do pai, filhos, companheira, organização,
-cargo, endereço, crime da prisão e observações — e alcança também as
-ocorrências e os materiais ligados à pessoa (tipo de crime, número do
-BO, objeto apreendido). Ignora acentos e maiúsculas: "jose" acha
-"JOSÉ". Digitando mais de uma palavra, o registro precisa ter todas
-elas, em qualquer campo: "maria josefa" encontra quem se chama Maria
-e é filha de Josefa. Para procurar uma expressão inteira, use aspas:
-"rua das flores".
-
-ROLAGEM E ORDEM DAS COLUNAS: a tabela tem rolagem própria e o
-cabeçalho fica fixo no topo enquanto você desce a lista. Para mudar
-uma coluna de lugar, arraste o título dela. A ordem escolhida fica
-guardada no navegador daquele computador — não altera o banco nem a
-tela dos outros usuários. O botão "Restaurar ordem das colunas",
-acima da tabela, volta ao padrão.
 
 COLUNAS DA LISTAGEM: além dos dados de cadastro, a tela de Registros
 mostra, para cada pessoa, três colunas calculadas automaticamente:
@@ -842,51 +820,3 @@ SIRIO (Consulta só visualiza; Analista e Administrador cadastram e
 editam). Perfis mais específicos deste módulo (Gestor, Autoridade
 policial etc.) ainda não foram criados — é uma decisão maior, que
 afeta o sistema inteiro, e será conversada antes de ser feita.
-
-
-------------------------------------------------------------
- 17. VERIFICAÇÃO DE DENÚNCIAS
-------------------------------------------------------------
-
-Item de menu: "Verificação de denúncias". Serve para registrar as
-denúncias que chegam à unidade — Disque 100, WhatsApp, telefone,
-atendimento presencial, ofício de outro órgão — e acompanhar a
-averiguação inicial feita pelo servidor.
-
-O QUE SE REGISTRA:
-  - Origem: protocolo de atendimento, canal por onde chegou, órgão
-    que encaminhou, datas da denúncia e do fato, natureza, município
-    e local do fato.
-  - Envolvidos: vítima e autor. Digitando um nome já cadastrado em
-    Registros, o sistema aproveita a qualificação (RG, CPF, filiação,
-    cônjuge) e traz o endereço do cadastro — mas só se o campo de
-    endereço ainda estiver vazio, para não apagar o que você apurou.
-  - Endereço e coordenadas da vítima, do autor e do local do fato,
-    com o mesmo botão "Localizar coordenadas pelo endereço" usado em
-    Ocorrências. Preenchidas as coordenadas, os pontos aparecem no
-    Mapa junto com as ocorrências, com o miolo claro e a borda
-    tracejada para você distinguir o que ainda é denúncia em apuração.
-  - Boletim de ocorrência: se foi registrado, o número (REDS) e, se
-    quiser, o vínculo com uma ocorrência já cadastrada no SIRIO.
-  - Averiguação: o relatório de averiguação inicial (texto livre),
-    as diligências pendentes (uma por linha) e a conclusão.
-  - Dados da Comunicação de Serviço: número, data, OS, PCNET, REQ,
-    destinatário e quem assina. O cargo e o MASP ficam guardados no
-    seu usuário e já vêm preenchidos na próxima verificação.
-
-SITUAÇÕES: Em verificação, Aguardando resposta de outro órgão,
-Concluída e Arquivada. A lista traz um panorama com a contagem de
-cada uma e filtros por situação, canal, boletim e busca livre.
-
-GERAR A COMUNICAÇÃO DE SERVIÇO: na ficha da verificação, o botão
-"Gerar Comunicação de Serviço (Word)" baixa o documento pronto, com
-o cabeçalho, as qualificações, o registro de ocorrência, as
-diligências realizadas (um parágrafo por bloco do seu relatório), as
-diligências pendentes em lista numerada e a assinatura. O documento
-sai do arquivo modelos\comunicacao_servico.docx — TROQUE O CABEÇALHO
-DESSE ARQUIVO PELO TIMBRE DA SUA UNIDADE antes do primeiro uso. Se o
-modelo não for encontrado, o sistema avisa na tela e continua
-guardando os registros normalmente, só sem gerar o Word.
-
-PERFIS: Consulta visualiza; Analista e Administrador cadastram e
-editam; só o Administrador exclui.

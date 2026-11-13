@@ -50,12 +50,13 @@ def condicao_busca_livre(con, termos):
     return sql, args
 
 
-def pagina_lista(usuario, params):
+def pagina_lista(usuario, params, csrf=""):
     q = (params.get("q") or "").strip()
     f_grau = params.get("grau") or ""
     f_fonte = params.get("fonte") or ""
     f_status = params.get("status") or ""
     f_preso = params.get("preso") or ""
+    excluidos = params.get("excluidos") or ""
 
     con = conexao()
 
@@ -107,6 +108,7 @@ def pagina_lista(usuario, params):
                           '<a class="botao fantasma" href="/importar-csv">Importar CSV</a> '
                           '<a class="botao fantasma" href="/exportar.csv">Exportar CSV</a>')
 
+    selecao_em_massa = usuario["perfil"] == "admin"
     linhas = ""
     for p in registros:
         selo_p = ('<span class="selo s-preso">Preso(a)</span>' if p['preso'] == 'sim'
@@ -122,7 +124,10 @@ def pagina_lista(usuario, params):
                   if qtd_oc else "0")
         link_mat = (f'<a class="nomelink" href="/materiais?pessoa_id={p["id"]}">{qtd_mat}</a>'
                    if qtd_mat else "0")
+        marcar = (f'<td><input type="checkbox" name="pessoa_ids" value="{p["id"]}" '
+                  f'aria-label="Selecionar {e(p["nome"])}"></td>' if selecao_em_massa else "")
         linhas += f"""<tr>
+          {marcar}
           <td><a class="nomelink" href="/pessoas/{p['id']}">{e(p['nome'])}</a></td>
           <td>{e(p['alcunha']) or '—'}</td>
           <td class="nowrap-col">{e(p['cpf']) or '—'}</td>
@@ -141,21 +146,55 @@ def pagina_lista(usuario, params):
       <button type="button" class="botao fantasma mini"
         data-restaura-colunas="tab_registros">Restaurar ordem das colunas</button></div>"""
 
+    coluna_selecao = '<col style="width:2.6rem">' if selecao_em_massa else ''
+    cabecalho_selecao = ('<th><input type="checkbox" id="selecionar-todos" aria-label="Selecionar todos os registros exibidos"></th>'
+                         if selecao_em_massa else '')
+    acoes_massa = ("""<div class="acoes" style="margin:.75rem 0 0">
+          <button class="botao perigo" id="excluir-selecionados" disabled>Excluir selecionados</button>
+          <span class="suave" id="contagem-selecao">Nenhum registro selecionado.</span>
+        </div>
+        <script>
+        (() => {
+          const caixas = [...document.querySelectorAll('input[name="pessoa_ids"]')];
+          const todos = document.getElementById('selecionar-todos');
+          const botao = document.getElementById('excluir-selecionados');
+          const texto = document.getElementById('contagem-selecao');
+          const atualizar = () => {
+            const quantidade = caixas.filter(c => c.checked).length;
+            botao.disabled = quantidade === 0;
+            texto.textContent = quantidade ? `${quantidade} registro(s) selecionado(s).` : 'Nenhum registro selecionado.';
+            if (todos) todos.checked = quantidade > 0 && quantidade === caixas.length;
+          };
+          if (todos) todos.addEventListener('change', () => { caixas.forEach(c => c.checked = todos.checked); atualizar(); });
+          caixas.forEach(c => c.addEventListener('change', atualizar));
+          document.getElementById('form-exclusao-em-massa').addEventListener('submit', event => {
+            const quantidade = caixas.filter(c => c.checked).length;
+            if (!quantidade || !confirm(`Excluir DEFINITIVAMENTE ${quantidade} registro(s) selecionado(s)? Fotos e vínculos próprios também serão removidos; ocorrências e materiais serão preservados, sem vínculo com a pessoa.`)) event.preventDefault();
+          });
+        })();
+        </script>""" if selecao_em_massa else "")
+
     tabela = (f"""{barra}
+        <form method="post" action="/pessoas/excluir-em-massa" id="form-exclusao-em-massa">
+        <input type="hidden" name="csrf" value="{e(csrf)}">
         <div class="tabela-rolavel tabela-alta"><table class="tab-registros colunas-moveis" id="tab_registros">
-        <colgroup><col class="c-nome"><col class="c-alcunha"><col class="c-cpf"><col class="c-org">
+        <colgroup>{coluna_selecao}<col class="c-nome"><col class="c-alcunha"><col class="c-cpf"><col class="c-org">
         <col class="c-cargo"><col class="c-crime"><col class="c-oc"><col class="c-mat">
         <col class="c-conf"><col class="c-preso"><col class="c-status"></colgroup>
-        <thead><tr><th>Nome</th><th>Alcunha</th><th>CPF</th>
+        <thead><tr>{cabecalho_selecao}<th>Nome</th><th>Alcunha</th><th>CPF</th>
         <th>Organização</th><th>Cargo</th><th>Tipo de crime</th><th>Ocorrências</th><th>Materiais</th>
         <th>Confiabilidade</th><th>Prisional</th><th>Status</th></tr></thead>
         <tbody>{linhas}</tbody></table></div>
+        {acoes_massa}</form>
         {SCRIPT_COLUNAS_MOVEIS}
         <script>ativarColunasMoveis('tab_registros');</script>""" if registros else
         '<div class="vazio">Nenhum registro encontrado. Ajuste a busca ou cadastre um novo registro.</div>')
 
+    aviso_exclusao = (f'<p class="aviso">{e(excluidos)} registro(s) excluído(s) definitivamente.</p>'
+                     if excluidos.isdigit() and int(excluidos) else "")
     corpo = f"""
     <div class="cab"><h1>Registros</h1>{botao_exportar}</div>
+    {aviso_exclusao}
     <form method="get" action="/" class="painel" style="grid-template-columns:repeat(4,1fr) auto">
       <input class="larga" name="q" value="{e(q)}"
         placeholder="Buscar em todo o cadastro — nome, alcunha, CPF, RG, nome da mãe e do pai, filhos, companheira, organização, cargo, endereço, crime da prisão, observações, BO e materiais…">
@@ -190,8 +229,8 @@ def campo_form(nome, valor, csrf=None):
     if nome == "crime_prisao":
         return (f'<label>{rotulo}<select name="{nome}"><option value="">Selecionar…</option>'
                 f'{opcoes(lista_ativa_com_atual("tipo_crime", valor), valor)}</select></label>')
-    if nome in ("observacoes", "endereco"):
-        linhas = 4 if nome == "observacoes" else 2
+    if nome in ("observacoes", "resumo_investigativo", "endereco"):
+        linhas = 8 if nome == "resumo_investigativo" else (4 if nome == "observacoes" else 2)
         return f'<label class="span2">{rotulo}<textarea name="{nome}" rows="{linhas}">{v}</textarea></label>'
     if nome == "data_nascimento":
         return f'<label>{rotulo}<input type="date" name="{nome}" value="{v}"></label>'
@@ -250,6 +289,7 @@ def pagina_form(usuario, csrf, dados=None, pessoa_id=None, erro="", fotos=None):
       </div></fieldset>
       <fieldset><legend>6 · Endereço e observações</legend><div class="grade">
         {campo_form('endereco', v('endereco'))}{campo_form('observacoes', v('observacoes'))}
+        {campo_form('resumo_investigativo', v('resumo_investigativo'))}
       </div></fieldset>
       <fieldset><legend>7 · Controle administrativo</legend><div class="grade">
         {campo_form('status', v('status'))}
@@ -482,6 +522,8 @@ def pagina_detalhe(usuario, csrf, p, trilha, nomes_usuarios, fotos, materiais=No
         {li_campo('Cargo / função na organização', p['cargo_orcrim'])}
         {li_campo('Fonte da informação', p['fonte_informacao'])}
         {li_campo('Observações', p['observacoes'])}</div>
+      <div class="cartao"><h2>Informações localizadas</h2>
+        {li_campo('Resumo investigativo', p['resumo_investigativo'])}</div>
       <div class="cartao"><h2>Situação prisional</h2>
         {li_campo('Está preso(a)', 'Sim' if p['preso'] == 'sim' else 'Não')}
         {li_campo('Data da última prisão', p['data_ultima_prisao'])}
